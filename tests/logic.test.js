@@ -4,7 +4,7 @@ const L = require('../docs/logic.js');
 
 const base = () => ({
   cfg: { hire: '2026-05-18', salary: 48000, start: '09:00', end: '18:00', lunchStart: '12:00', lunchMin: 60,
-         workdays: [1, 2, 3, 4, 5], holidays: [], bonusMonths: 1, bonusProrate: false },
+         workdays: [1, 2, 3, 4, 5], holidays: [], builtinHol: false, bonusMonths: 1, bonusProrate: false },
   overrides: {}, ot: {},
 });
 const X = S => L.mkCtx(S);
@@ -111,6 +111,34 @@ t('出勤津貼：只有上班日才有；加班費基準可另填', () => {
   assert.equal(L.otSalary({ salary: 40000, otBase: 0 }), 40000);
   assert.equal(L.otSalary({ salary: 40000, otBase: 46000 }), 46000);
   assert.ok(Math.abs(L.ratePerSec(new Date(2026, 10, 16), x) - (dp + 135) / 28800) < 1e-9);
+});
+
+t('內建國定假日（2026、2027）', () => {
+  const S = base(); S.cfg.builtinHol = true; S.cfg.salary = 40000; S.cfg.allowance = 135;
+  const x = X(S);
+  // 你說的中秋連假：週五 9/25 中秋 + 週一 9/28 教師節都放假
+  for (const [d, name] of [['2026-09-25', '中秋'], ['2026-09-28', '教師']]) {
+    const i = L.dayInfo(L.parse(d), x);
+    assert.equal(i.type, 'off'); assert.equal(i.isHol, true); assert.equal(i.name, name);
+  }
+  assert.equal(L.dayInfo(new Date(2026, 8, 24), x).type, 'work');   // 連假前一天要上班
+  assert.equal(L.dayInfo(new Date(2026, 8, 29), x).type, 'work');   // 連假後一天要上班
+  // 全部日期格式正確；兩年落在平日的假日天數
+  const wk = { 2026: 0, 2027: 0 };
+  for (const d of Object.keys(L.HOLIDAYS)) {
+    const dt = L.parse(d); assert.ok(dt, d);
+    if (dt.getDay() >= 1 && dt.getDay() <= 5) wk[dt.getFullYear()]++;
+  }
+  assert.deepEqual(wk, { 2026: 16, 2027: 17 });
+  // 9 月：22 個平日 - 2 天假日 = 20 個上班日 → 薪水照領 40000 + 135 × 20
+  const e = L.earnings(new Date(2026, 8, 30, 18, 0, 0), x);
+  assert.ok(Math.abs(e.month - (40000 + 135 * 20)) < 1e-6, String(e.month));
+  // 關掉內建 → 9/25 回到上班日
+  S.cfg.builtinHol = false;
+  assert.equal(L.dayInfo(new Date(2026, 8, 25), X(S)).type, 'work');
+  // 自訂假日仍可疊加
+  S.cfg.holidays = ['2026-09-24'];
+  assert.equal(L.dayInfo(new Date(2026, 8, 24), X(S)).name, '假日');
 });
 
 t('倒數與年終', () => {

@@ -52,8 +52,36 @@
   }
 
   /* ───────── 班表 ───────── */
+  /* 內建國定假日（含補假與春節各天；2026、2027 兩年）。
+   * 依行政院人事行政總處「政府行政機關辦公日曆表」整理，並用多家媒體逐日核對：
+   *   115 年（2026）全年「只補假、不補班」，沒有補班日；
+   *   116 年（2027）同樣沒有補班日。
+   * 民間公司可能與政府不同（例如不補假），所以設定裡可以關掉，個別日子也能在班表手動改回上班。
+   * 2028 年起要等公告後再補進來。 */
+  const HOLIDAYS = {
+    // 2026
+    '2026-01-01': '元旦',
+    '2026-02-14': '春節', '2026-02-15': '小年夜', '2026-02-16': '除夕', '2026-02-17': '初一',
+    '2026-02-18': '初二', '2026-02-19': '初三', '2026-02-20': '補假', '2026-02-21': '春節', '2026-02-22': '春節',
+    '2026-02-27': '補假', '2026-02-28': '和平',
+    '2026-04-03': '補假', '2026-04-04': '兒童', '2026-04-05': '清明', '2026-04-06': '補假',
+    '2026-05-01': '勞動', '2026-06-19': '端午', '2026-09-25': '中秋', '2026-09-28': '教師',
+    '2026-10-09': '補假', '2026-10-10': '國慶', '2026-10-25': '光復', '2026-10-26': '補假', '2026-12-25': '行憲',
+    // 2027
+    '2027-01-01': '元旦',
+    '2027-02-04': '小年夜', '2027-02-05': '除夕', '2027-02-06': '初一', '2027-02-07': '初二', '2027-02-08': '初三',
+    '2027-02-09': '補假', '2027-02-10': '補假',
+    '2027-02-28': '和平', '2027-03-01': '補假',
+    '2027-04-04': '兒童', '2027-04-05': '清明', '2027-04-06': '補假',
+    '2027-04-30': '補假', '2027-05-01': '勞動', '2027-06-09': '端午', '2027-09-15': '中秋', '2027-09-28': '教師',
+    '2027-10-10': '國慶', '2027-10-11': '補假', '2027-10-25': '光復', '2027-12-24': '補假', '2027-12-25': '行憲',
+    '2027-12-31': '補假',
+  };
   function mkCtx(S) {
-    return { S, cfg: S.cfg, hol: new Set(S.cfg.holidays || []), hire: parse(S.cfg.hire) };
+    const names = {};
+    if (S.cfg.builtinHol !== false) Object.assign(names, HOLIDAYS);
+    for (const d of S.cfg.holidays || []) if (!names[d]) names[d] = '假日';
+    return { S, cfg: S.cfg, hol: new Set(Object.keys(names)), holName: names, hire: parse(S.cfg.hire) };
   }
   /** type: work 上班 / off 休息 / annual 特休 / sick 請假 / pre 到職前 */
   function dayInfo(d, X, ignoreHire) {
@@ -62,7 +90,7 @@
     const ov = X.S.overrides[ds] || null;
     const isHol = X.hol.has(ds);
     const regular = (X.cfg.workdays || []).includes(d.getDay()) && !isHol;
-    return { ds, type: ov || (regular ? 'work' : 'off'), regular, isHol, ov: !!ov, ot: +X.S.ot[ds] || 0 };
+    return { ds, type: ov || (regular ? 'work' : 'off'), regular, isHol, name: X.holName[ds] || '', ov: !!ov, ot: +X.S.ot[ds] || 0 };
   }
   function countType(from, to, X, types) {
     let n = 0;
@@ -271,7 +299,7 @@
 
   const api = {
     pad, ymd, parse, startOfDay, addDays, diffDays, addMonths, hm, win, totalWork, workedAt, phase,
-    mkCtx, dayInfo, countType, monthPayDays, dailyPay, allowanceOf, ratePerSec, otSalary, earnings, fullMonths, hireInfo,
+    HOLIDAYS, mkCtx, dayInfo, countType, monthPayDays, dailyPay, allowanceOf, ratePerSec, otSalary, earnings, fullMonths, hireInfo,
     workedDays, leaveEntitlement, leavePeriod, otPay, countdown, bonusEstimate, nextPayday,
     money, clock, humanWork, parseHolidays,
   };

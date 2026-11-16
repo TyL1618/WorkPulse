@@ -116,6 +116,9 @@ textarea { min-height: 96px; resize: vertical; font-size: 14px; }
 .day.pre { opacity: .3; border-style: dashed; }
 .day.off { background: transparent; color: var(--muted); border-color: transparent; }
 .day.off .n { font-weight: 500; }
+.day.we .n { color: #b97a85; }
+.day.hol { background: rgba(242,109,125,.08); border: 1px solid rgba(242,109,125,.4); }
+.day.hol .n { color: var(--pink); font-weight: 800; }
 .day.hol .t { color: var(--pink); }
 .day.work { border-color: rgba(90,176,232,.55); }
 .day.work.done { background: linear-gradient(135deg, rgba(90,176,232,.22), rgba(62,207,142,.26)); border-color: rgba(62,207,142,.5); }

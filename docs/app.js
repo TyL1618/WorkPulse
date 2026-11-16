@@ -14,7 +14,7 @@
     v: 1,
     cfg: {
       hire: '', salary: 0, allowance: 0, otBase: 0, start: '09:00', end: '18:00', lunchStart: '12:00', lunchMin: 60,
-      workdays: [1, 2, 3, 4, 5], holidays: [], payday: 10, payTime: '01:00', payOfPrev: true, hide: false, bonusMonths: 1, bonusProrate: false,
+      workdays: [1, 2, 3, 4, 5], holidays: [], builtinHol: true, payday: 10, payTime: '01:00', payOfPrev: true, hide: false, bonusMonths: 1, bonusProrate: false,
     },
     overrides: {}, ot: {},
     targets: [
@@ -81,13 +81,14 @@
   }
   function monthCounts(y, m, now) {
     const x = X(), today = L.startOfDay(now), done0 = todayDone(now);
-    const o = { work: 0, done: 0, annual: 0, sick: 0, ot: 0, otPay: 0, expect: 0 };
+    const o = { work: 0, done: 0, annual: 0, sick: 0, ot: 0, otPay: 0, expect: 0, holWk: 0 };
     const last = new Date(y, m + 1, 0).getDate();
     for (let i = 1; i <= last; i++) {
       const d = new Date(y, m, i), info = L.dayInfo(d, x);
       if (info.type === 'work') { o.work++; if (d < today || (d.getTime() === today.getTime() && done0)) o.done++; }
       if (info.type === 'annual') o.annual++;
       if (info.type === 'sick') o.sick++;
+      if (info.isHol && info.type !== 'pre' && (S.cfg.workdays || []).includes(d.getDay())) o.holWk++;   // 落在平日的國定假日
       if (info.ot > 0 && info.type !== 'pre') {
         o.ot += info.ot;
         o.otPay += L.otPay(L.otSalary(S.cfg), info.ot, info.isHol ? 'holiday' : info.regular ? 'weekday' : 'rest').total;
@@ -128,7 +129,7 @@
       status = { before: '還沒上班', working: '上班中 💼', lunch: '午休中 🍱', after: '已下班 🎉' }[ph];
       if (ph !== 'after') left = L.clock(w.e - sec);
     } else if (info.type === 'pre') { status = '到職前'; }
-    else { status = { off: '今天休息 😴', annual: '今天特休 🏖️', sick: '今天請假 🤒' }[info.type]; pct = info.type === 'off' ? 0 : 100; }
+    else { status = info.type === 'off' && info.isHol ? `國定假日 🎌 ${info.name}` : { off: '今天休息 😴', annual: '今天特休 🏖️', sick: '今天請假 🤒' }[info.type]; pct = info.type === 'off' ? 0 : 100; }
     o.status = status; o.left = ph === 'after' || info.type !== 'work' ? '今日已無倒數' : `下班倒數 ${left}`; o.pct = Math.min(100, pct);
     // 資歷
     const hi = L.hireInfo(now, x), first = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -257,8 +258,8 @@
       if (info.type === 'work') t = done ? '✓' : '';
       else if (info.type === 'annual') t = '特休';
       else if (info.type === 'sick') t = '請假';
-      else if (info.isHol) t = '假日';
-      cells += `<button class="day ${info.type}${done ? ' done' : ''}${isToday ? ' today' : ''}${info.isHol ? ' hol' : ''}" data-act="day" data-ds="${info.ds}">
+      else if (info.isHol) t = info.name || '假日';
+      cells += `<button class="day ${info.type}${done ? ' done' : ''}${isToday ? ' today' : ''}${info.isHol ? ' hol' : ''}${d.getDay() % 6 === 0 ? ' we' : ''}" data-act="day" data-ds="${info.ds}">
         ${info.ot > 0 ? `<span class="ot">+${info.ot}h</span>` : ''}<span class="n">${i}</span><span class="t">${t}</span></button>`;
     }
     const nowM = now.getFullYear() * 12 + now.getMonth() === y * 12 + m;
@@ -270,6 +271,7 @@
       <div class="legend">
         <span class="pill"><i style="background:linear-gradient(135deg,#5ab0e8,#3ecf8e)"></i>已上班</span>
         <span class="pill blue"><i style="border:1.5px solid #5ab0e8"></i>待上班</span>
+        <span class="pill pink"><i style="background:rgba(242,109,125,.35);border:1.5px solid #f26d7d"></i>紅字＝國定假日／補假（不扣薪，但沒有津貼）</span>
         <span class="pill gold"><i style="background:#d9b56a"></i>特休</span>
         <span class="pill pink"><i style="background:#f26d7d"></i>請假</span>
         <span class="pill">點日期可修改・補班、請假、加班時數</span></div></div>
@@ -281,6 +283,7 @@
         <div><div class="lbl">加班費估算</div><div class="mid">${S.cfg.salary > 0 ? M(mc.otPay) : '—'}</div></div></div>
         <div class="kv2"><div><div class="lbl">本月預估實拿（固定＋津貼，不含加班費）</div><div class="mid">${S.cfg.salary > 0 ? M(mc.expect) : '—'}</div></div>
         <div><div class="lbl">津貼（${L.allowanceOf(S.cfg) > 0 ? M(L.allowanceOf(S.cfg)) + ' × ' + mc.work + ' 天' : '未設定'}）</div><div class="mid">${S.cfg.salary > 0 ? M(L.allowanceOf(S.cfg) * mc.work) : '—'}</div></div></div>
+        ${mc.holWk > 0 ? `<p class="hint" style="margin-top:10px">本月有 <b>${mc.holWk}</b> 天國定假日落在平日：薪水照領，但這些天沒有出勤津貼${L.allowanceOf(S.cfg) > 0 ? `（少 ${M(L.allowanceOf(S.cfg) * mc.holWk)}）` : ''}。</p>` : ''}
         <div class="row" style="margin-top:12px"><button class="btn sm danger" data-act="clearMonth">清除本月手動修改</button></div>
         ${x.hire ? '' : '<p class="warn">還沒設定到職日，到職前的日子不會變灰。</p>'}</div>`;
   }
@@ -432,9 +435,12 @@
         <label class="field"><span>午休開始</span><input type="time" data-path="cfg.lunchStart" value="${c.lunchStart}"></label>
         <label class="field"><span>午休分鐘</span><input type="number" min="0" max="240" data-path="cfg.lunchMin" data-num value="${c.lunchMin}"></label></div>
         <div><div class="lbl" style="margin-bottom:6px">平常上班的星期</div><div class="chips">${WDN.map((n, i) => `<label class="chk"><input type="checkbox" data-wd="${i}" ${c.workdays.includes(i) ? 'checked' : ''}>${n}</label>`).join('')}</div></div></div></section>
-      <section class="card span2"><h2>🎌 國定假日 / 補班</h2>
-        <textarea id="holidays" placeholder="2026-12-25&#10;2027-01-01">${esc(c.holidays.join('\n'))}</textarea>
-        <p class="hint" style="margin-top:8px">每行一個日期（YYYY-MM-DD）。這裡的日期會當成休息日，並影響倒數的「上班日」數與每日薪資。請對照人事行政總處公告的行事曆填寫；補班日就直接到「班表」把那天點成上班。目前已填 <b>${c.holidays.length}</b> 天。</p></section>
+      <section class="card span2"><h2>🎌 國定假日</h2>
+        <label class="chk"><input type="checkbox" data-path="cfg.builtinHol" ${c.builtinHol !== false ? 'checked' : ''}>使用內建的政府行事曆（2026、2027 年，含補假）</label>
+        <p class="hint" style="margin-top:8px">內建資料來自行政院人事行政總處的辦公日曆表：這兩年<b>只補假、不補班</b>。民間公司可能跟政府不同（例如不補假），遇到公司另有公告時，到「班表」點那天改成上班或休息就行。2028 年起要等公告後才會更新。</p>
+        <div class="lbl" style="margin:12px 0 6px">額外的休息日（公司自訂放假，每行一個 YYYY-MM-DD）</div>
+        <textarea id="holidays" placeholder="2026-12-24">${esc(c.holidays.join('\n'))}</textarea>
+        <p class="hint" style="margin-top:8px">目前額外填了 <b>${c.holidays.length}</b> 天。</p></section>
       <section class="card"><h2>🔒 隱私</h2><label class="chk"><input type="checkbox" data-path="cfg.hide" ${c.hide ? 'checked' : ''}>隱藏所有金額（也可按右上角眼睛）</label>
         <p class="hint" style="margin-top:10px">所有資料只存在這個瀏覽器的 localStorage，沒有帳號、不上傳。換裝置或清除瀏覽資料前，請先匯出備份。</p></section>
       <section class="card"><h2>💾 備份</h2><div class="row"><button class="btn" data-act="export">匯出備份</button><button class="btn" data-act="import">匯入備份</button><button class="btn danger" data-act="reset">全部重設</button></div></section>
