@@ -99,6 +99,20 @@ t('賺了多少（趣味版）', () => {
   assert.equal(L.earnings(new Date(2026, 10, 21, 12, 0, 0), x).today, 0);
 });
 
+t('出勤津貼：只有上班日才有；加班費基準可另填', () => {
+  const S = base(); S.cfg.salary = 40000; S.cfg.allowance = 135;
+  S.overrides['2026-11-18'] = 'annual';                         // 特休那天沒有津貼
+  const x = X(S);
+  const dp = 40000 / 21;                                        // 11 月 21 個領薪日（特休照領）
+  const e = L.earnings(new Date(2026, 10, 19, 18, 0, 0), x);    // 週四下班後
+  // 已完成：11/2~11/6(5) 11/9~11/13(5) 11/16、17、19 共 13 個上班日 + 1 個特休日(11/18)
+  const workDays = 5 + 5 + 3, expectMonth = dp * (workDays + 1) + 135 * workDays;
+  assert.ok(Math.abs(e.month - expectMonth) < 1e-6, `${e.month} vs ${expectMonth}`);
+  assert.equal(L.otSalary({ salary: 40000, otBase: 0 }), 40000);
+  assert.equal(L.otSalary({ salary: 40000, otBase: 46000 }), 46000);
+  assert.ok(Math.abs(L.ratePerSec(new Date(2026, 10, 16), x) - (dp + 135) / 28800) < 1e-9);
+});
+
 t('倒數與年終', () => {
   const S = base(); const x = X(S);
   const c = L.countdown('2026-12-31', new Date(2026, 10, 16, 9, 0, 0), x);

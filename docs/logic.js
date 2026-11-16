@@ -78,7 +78,11 @@
     return n;
   }
   const dailyPay = (y, m, X) => (+X.cfg.salary || 0) / Math.max(1, monthPayDays(y, m, X));
-  const ratePerSec = (d, X) => dailyPay(d.getFullYear(), d.getMonth(), X) / totalWork(X.cfg);
+  const allowanceOf = cfg => Math.max(0, +cfg.allowance || 0);
+  /** 上班那天每秒賺多少（底薪日薪＋出勤津貼，都攤在工作秒數上） */
+  const ratePerSec = (d, X) => (dailyPay(d.getFullYear(), d.getMonth(), X) + allowanceOf(X.cfg)) / totalWork(X.cfg);
+  /** 加班費時薪的基準月薪：有填「應領」就用它，否則用月薪（實拿） */
+  const otSalary = cfg => (+cfg.otBase > 0 ? +cfg.otBase : +cfg.salary || 0);
 
   /* ───────── 賺了多少（趣味版：月薪 ÷ 當月領薪日 ÷ 工作秒數）───────── */
   function earnings(now, X) {
@@ -93,8 +97,9 @@
     const dayEarn = d => {
       const t = dayInfo(d, X).type;
       if (t === 'off' || t === 'pre') return 0;
-      if (d.getTime() === today.getTime()) return t === 'work' ? dpay(d) * frac : dpay(d);
-      return d < today ? dpay(d) : 0;
+      const al = t === 'work' ? allowanceOf(X.cfg) : 0;          // 出勤津貼只有「上班」那天才有
+      if (d.getTime() === today.getTime()) return t === 'work' ? (dpay(d) + al) * frac : dpay(d);
+      return d < today ? dpay(d) + al : 0;
     };
     const sum = from => {
       let s = 0;
@@ -261,7 +266,7 @@
 
   const api = {
     pad, ymd, parse, startOfDay, addDays, diffDays, addMonths, hm, win, totalWork, workedAt, phase,
-    mkCtx, dayInfo, countType, monthPayDays, dailyPay, ratePerSec, earnings, fullMonths, hireInfo,
+    mkCtx, dayInfo, countType, monthPayDays, dailyPay, allowanceOf, ratePerSec, otSalary, earnings, fullMonths, hireInfo,
     workedDays, leaveEntitlement, leavePeriod, otPay, countdown, bonusEstimate, nextPayday,
     money, clock, humanWork, parseHolidays,
   };

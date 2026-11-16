@@ -20,7 +20,7 @@ tools/make_icon.py    Pillow 畫 icon（藍→綠漸層進度環＋線尾圓環�
 ## 資料（localStorage key `workpulse.v1`）
 
 ```
-cfg        hire 'YYYY-MM-DD' · salary · start/end 'HH:MM' · lunchStart · lunchMin · workdays [0-6]
+cfg        hire 'YYYY-MM-DD' · salary(固定月薪，實拿) · allowance(每日出勤津貼) · otBase(加班費基準月薪，選填，0=用 salary) · start/end 'HH:MM' · lunchStart · lunchMin · workdays [0-6]
            holidays [日期] · payday 1-31(0=不顯示) · hide · bonusMonths · bonusProrate
 overrides  { 'YYYY-MM-DD': 'work'|'off'|'annual'|'sick' }   只存「跟預設不同」的日子
 ot         { 'YYYY-MM-DD': 小時 }
@@ -41,8 +41,8 @@ ui         { tab, month }
 
 ## 薪資計算
 
-- **趣味版（即時跳動、累計）**：日薪＝月薪 ÷ 當月「領薪日數」（非 `off` 的日子，不看到職日）；每秒＝日薪 ÷ 工作秒數（扣午休）。今天用 `workedAt` 算已工作比例。特休、請假視為領全薪。
-- **加班費（法定）**：時薪＝月薪 ÷ 240。
+- **趣味版（即時跳動、累計）**：日薪＝固定月薪 ÷ 當月「領薪日數」（非 `off` 的日子，不看到職日）；**出勤津貼（allowance）只在型態為 `work` 的那天加上**，特休、請假、假日沒有。每秒＝(日薪＋津貼) ÷ 工作秒數（扣午休）。今天用 `workedAt` 算已工作比例。特休、請假視為領全額固定月薪。班表分頁的「本月預估實拿」＝salary ＋ allowance × 本月上班日數（不含加班費）。
+- **加班費（法定）**：時薪＝`otSalary(cfg)` ÷ 240；`otSalary` 在有填 `otBase`（應領，未扣勞健保）時用它，否則退回 `salary`。實拿比應領低，所以不填 `otBase` 會低估。津貼是否算進時薪基準有爭議，預設不算。
   - 平日：前 2 小時 ×1.34、再 2 小時 ×1.67（單日上限 4 小時）。
   - 休息日：不足 4 小時按 4、4–8 按 8、8–12 按 12；前 2 小時 ×1.34、第 3–8 小時 ×1.67、第 9–12 小時 ×2.67。
   - 國定假日：加發一日工資（8 小時 ×1），超過 8 小時再依 1.34／1.67。

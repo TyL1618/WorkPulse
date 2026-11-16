@@ -13,7 +13,7 @@
   const DEF = () => ({
     v: 1,
     cfg: {
-      hire: '', salary: 0, start: '09:00', end: '18:00', lunchStart: '12:00', lunchMin: 60,
+      hire: '', salary: 0, allowance: 0, otBase: 0, start: '09:00', end: '18:00', lunchStart: '12:00', lunchMin: 60,
       workdays: [1, 2, 3, 4, 5], holidays: [], payday: 0, hide: false, bonusMonths: 1, bonusProrate: false,
     },
     overrides: {}, ot: {},
@@ -81,7 +81,7 @@
   }
   function monthCounts(y, m, now) {
     const x = X(), today = L.startOfDay(now), done0 = todayDone(now);
-    const o = { work: 0, done: 0, annual: 0, sick: 0, ot: 0, otPay: 0 };
+    const o = { work: 0, done: 0, annual: 0, sick: 0, ot: 0, otPay: 0, expect: 0 };
     const last = new Date(y, m + 1, 0).getDate();
     for (let i = 1; i <= last; i++) {
       const d = new Date(y, m, i), info = L.dayInfo(d, x);
@@ -90,9 +90,10 @@
       if (info.type === 'sick') o.sick++;
       if (info.ot > 0 && info.type !== 'pre') {
         o.ot += info.ot;
-        o.otPay += L.otPay(S.cfg.salary, info.ot, info.isHol ? 'holiday' : info.regular ? 'weekday' : 'rest').total;
+        o.otPay += L.otPay(L.otSalary(S.cfg), info.ot, info.isHol ? 'holiday' : info.regular ? 'weekday' : 'rest').total;
       }
     }
+    o.expect = (+S.cfg.salary || 0) + L.allowanceOf(S.cfg) * o.work;   // 本月預估實拿（不含加班費）
     return o;
   }
   function weekCounts(now) {
@@ -167,12 +168,13 @@
     if (setup) {
       h += `<section class="card setup span2"><h2>👋 先設定兩個數字就能開始</h2>
         <div class="row"><label class="field"><span>到職日</span><input type="date" data-path="cfg.hire" value="${esc(c.hire)}"></label>
-        <label class="field"><span>月薪（只存在這台裝置）</span><input type="number" inputmode="numeric" min="0" data-path="cfg.salary" data-num value="${c.salary || ''}" placeholder="例如 45000"></label></div>
+        <label class="field"><span>固定月薪（實拿，只存在這台裝置）</span><input type="number" inputmode="numeric" min="0" data-path="cfg.salary" data-num value="${c.salary || ''}" placeholder="例如 40000"></label>
+        <label class="field"><span>每日出勤津貼（沒有就空白）</span><input type="number" inputmode="numeric" min="0" data-path="cfg.allowance" data-num value="${c.allowance || ''}" placeholder="例如 135"></label></div>
         <p class="hint" style="margin-top:8px">上下班時間、午休、國定假日可到「設定」調整。資料只存在這個瀏覽器，不會上傳到任何地方。</p></section>`;
     }
     h += `<section class="card span2"><h2>💰 即時薪資 <span class="tag" data-live="status"></span></h2>
       <div class="big green" data-live="today">$0.00</div>
-      <div class="sub">今天已經賺到（趣味版：月薪 ÷ 當月領薪日 ÷ 工作秒數）</div>
+      <div class="sub">今天已經賺到（趣味版：固定月薪 ÷ 當月領薪日，再加每日出勤津貼，按工作秒數累積）</div>
       <div class="bar"><i data-live-w="pct"></i></div>
       <div class="row sp sub" style="margin-top:8px"><span class="neon-num" data-live="left"></span><span data-live="rate"></span></div>
       <div class="kv3"><div><div class="lbl">本月已賺</div><div class="mid" data-live="month"></div></div>
@@ -266,6 +268,8 @@
         <div><div class="lbl">特休 / 請假</div><div class="mid">${mc.annual} / ${mc.sick}</div></div></div>
         <div class="kv2"><div><div class="lbl">加班時數</div><div class="mid">${mc.ot} 小時</div></div>
         <div><div class="lbl">加班費估算</div><div class="mid">${S.cfg.salary > 0 ? M(mc.otPay) : '—'}</div></div></div>
+        <div class="kv2"><div><div class="lbl">本月預估實拿（固定＋津貼，不含加班費）</div><div class="mid">${S.cfg.salary > 0 ? M(mc.expect) : '—'}</div></div>
+        <div><div class="lbl">津貼（${L.allowanceOf(S.cfg) > 0 ? M(L.allowanceOf(S.cfg)) + ' × ' + mc.work + ' 天' : '未設定'}）</div><div class="mid">${S.cfg.salary > 0 ? M(L.allowanceOf(S.cfg) * mc.work) : '—'}</div></div></div>
         <div class="row" style="margin-top:12px"><button class="btn sm danger" data-act="clearMonth">清除本月手動修改</button></div>
         ${x.hire ? '' : '<p class="warn">還沒設定到職日，到職前的日子不會變灰。</p>'}</div>`;
   }
@@ -392,7 +396,7 @@
   function updateOT() {
     const out = $('#ot-out'); if (!out) return;
     const kind = $('#ot-kind').value, hrs = parseFloat($('#ot-hours').value) || 0;
-    const r = L.otPay(S.cfg.salary, hrs, kind);
+    const r = L.otPay(L.otSalary(S.cfg), hrs, kind);
     if (!(S.cfg.salary > 0)) { out.innerHTML = ''; return; }
     out.innerHTML = `<div class="row sp"><div><div class="lbl">這天加班費</div><div class="big green">${M(r.total)}</div></div><div style="text-align:right"><div class="lbl">時薪</div><div class="mid">${M(r.hourly, 1)}</div></div></div>
       <div class="list" style="margin-top:8px">${r.rows.map(w => `<div><div class="grow">${w.label}</div><div class="r">${w.h} 小時 × ${w.mult}</div><div class="r">${M(w.v)}</div></div>`).join('')}</div>
@@ -405,7 +409,9 @@
     return `<div class="grid">
       <section class="card"><h2>👤 基本資料</h2><div class="stack">
         <label class="field"><span>到職日</span><input type="date" data-path="cfg.hire" value="${esc(c.hire)}"></label>
-        <label class="field"><span>月薪（只存在這台裝置）</span><input type="number" min="0" inputmode="numeric" data-path="cfg.salary" data-num value="${c.salary || ''}"></label>
+        <label class="field"><span>固定月薪（實拿，不含出勤津貼；只存在這台裝置）</span><input type="number" min="0" inputmode="numeric" data-path="cfg.salary" data-num value="${c.salary || ''}"></label>
+        <label class="field"><span>每日出勤津貼（午餐＋交通等，上班才有；特休、請假、假日沒有）</span><input type="number" min="0" inputmode="numeric" data-path="cfg.allowance" data-num value="${c.allowance || ''}" placeholder="例如 135"></label>
+        <label class="field"><span>加班費計算用的月薪（選填：薪資單的「應領」，未扣勞健保；空白＝用上面的固定月薪）</span><input type="number" min="0" inputmode="numeric" data-path="cfg.otBase" data-num value="${c.otBase || ''}" placeholder="不確定就留空"></label>
         <label class="field"><span>發薪日（每月幾號，0＝不顯示）</span><input type="number" min="0" max="31" inputmode="numeric" data-path="cfg.payday" data-num value="${c.payday || ''}" placeholder="例如 5"></label></div></section>
       <section class="card"><h2>🕘 上下班時間</h2><div class="stack"><div class="row">
         <label class="field"><span>上班</span><input type="time" data-path="cfg.start" value="${c.start}"></label>
