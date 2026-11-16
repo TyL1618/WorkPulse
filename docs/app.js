@@ -14,7 +14,7 @@
     v: 1,
     cfg: {
       hire: '', salary: 0, allowance: 0, otBase: 0, start: '09:00', end: '18:00', lunchStart: '12:00', lunchMin: 60,
-      workdays: [1, 2, 3, 4, 5], holidays: [], builtinHol: true, payday: 10, payTime: '01:00', payOfPrev: true, hide: false, bonusMonths: 1, bonusProrate: false,
+      workdays: [1, 2, 3, 4, 5], holidays: [], holNames: {}, typhoonPaid: true, builtinHol: true, payday: 10, payTime: '01:00', payOfPrev: true, hide: false, bonusMonths: 1, bonusProrate: false,
     },
     overrides: {}, ot: {},
     targets: [
@@ -284,7 +284,7 @@
       if (info.type === 'work') t = done ? '✓' : '';
       else if (L.LEAVE[info.type]) t = L.LEAVE[info.type].name;
       else if (info.isHol) t = info.name || '假日';
-      cells += `<button class="day ${info.type}${done ? ' done' : ''}${isToday ? ' today' : ''}${info.isHol ? ' hol' : ''}${d.getDay() % 6 === 0 ? ' we' : ''}" data-act="day" data-ds="${info.ds}">
+      cells += `<button class="day ${info.type}${done ? ' done' : ''}${isToday ? ' today' : ''}${info.isHol && info.type === 'off' ? ' hol' : ''}${d.getDay() % 6 === 0 ? ' we' : ''}" data-act="day" data-ds="${info.ds}">
         ${info.ot > 0 ? `<span class="ot">+${info.ot}h</span>` : ''}<span class="n">${i}</span><span class="t">${t}</span></button>`;
     }
     const nowM = now.getFullYear() * 12 + now.getMonth() === y * 12 + m;
@@ -300,6 +300,7 @@
         <span class="pill gold"><i style="background:#d9b56a"></i>特休</span>
         <span class="pill" style="color:#b9a4e0"><i style="background:#b9a4e0"></i>喪假等帶薪假</span>
         <span class="pill pink"><i style="background:#f26d7d"></i>病假・事假</span>
+        <span class="pill" style="color:#4fc3c3"><i style="background:#4fc3c3"></i>颱風假</span>
         <span class="pill">點日期可修改・補班、請假、加班時數</span></div></div>
       <div class="card" style="margin-top:14px"><h2>📊 ${m + 1} 月統計</h2>
         <div class="kv3"><div><div class="lbl">上班日</div><div class="mid">${mc.work} 天</div></div>
@@ -348,7 +349,7 @@
     return '';
   }
   function leaveCard() {
-    const x = X(), lv = S.ui.lv, ratioTxt = r => (r >= 1 ? '薪水照給' : r > 0 ? '半薪' : '不給薪');
+    const x = X(), lv = S.ui.lv, ratioTxt = k => { const r = L.leaveRatio(k, S.cfg); return r >= 1 ? '薪水照給' : r > 0 ? '半薪' : '不給薪'; };
     const dates = Object.keys(S.overrides).filter(ds => L.LEAVE[S.overrides[ds]]).sort();
     const groups = [], total = {};
     for (const ds of dates) {
@@ -356,7 +357,7 @@
       total[t] = (total[t] || 0) + 1;
       if (g && g.t === t && nextSched(g.last, x) === ds) { g.last = ds; g.n++; } else groups.push({ t, first: ds, last: ds, n: 1 });
     }
-    const opts = Object.entries(L.LEAVE).map(([k, v]) => `<option value="${k}" ${lv.type === k ? 'selected' : ''}>${v.name}（${ratioTxt(v.ratio)}）</option>`).join('');
+    const opts = Object.entries(L.LEAVE).map(([k, v]) => `<option value="${k}" ${lv.type === k ? 'selected' : ''}>${v.name}（${ratioTxt(k)}）</option>`).join('');
     return `<div class="card" style="margin-top:14px"><h2>🗒️ 登記請假</h2>
       <div class="row"><label class="field"><span>假別</span><select data-path="ui.lv.type">${opts}</select></label>
         <label class="field"><span>從</span><input type="date" data-path="ui.lv.from" value="${esc(lv.from)}"></label>
@@ -366,7 +367,7 @@
       <div class="hr"></div>
       <div class="lbl" style="margin-bottom:6px">請假紀錄${dates.length ? '：' + Object.entries(total).map(([k, n]) => `${L.LEAVE[k].name} ${n} 天`).join('、') : ''}</div>
       <div class="list">${groups.slice().reverse().map(g => `<div><div class="grow"><span class="pill ${g.t === 'annual' ? 'gold' : g.t === 'sick' || g.t === 'personal' ? 'pink' : ''}">${L.LEAVE[g.t].name}</span>
-        <b style="margin-left:8px">${mdOf(g.first)}${g.first !== g.last ? '–' + mdOf(g.last) : ''}</b> <span class="hint">${g.first.slice(0, 4)} · ${g.n} 天 · ${ratioTxt(L.LEAVE[g.t].ratio)}、無津貼</span></div>
+        <b style="margin-left:8px">${mdOf(g.first)}${g.first !== g.last ? '–' + mdOf(g.last) : ''}</b> <span class="hint">${g.first.slice(0, 4)} · ${g.n} 天 · ${ratioTxt(g.t)}、無津貼</span></div>
         <button class="x" data-act="lvDel" data-first="${g.first}" data-last="${g.last}" data-t="${g.t}" aria-label="刪除">✕</button></div>`).join('') || '<p class="hint">還沒有請假紀錄。</p>'}</div>
       <p class="hint" style="margin-top:10px">喪假依勞工請假規則是「工資照給」；病假（普通傷病假一年 30 日內）半薪；事假不給薪。特休只有選「特休」才會計入特休用量。事假與病假的扣薪是估算（固定月薪 ÷ 當月領薪日數），公司若用月薪 ÷ 30 計算會有些許出入。</p></div>`;
   }
@@ -499,9 +500,10 @@
       <section class="card span2"><h2>🎌 國定假日</h2>
         <label class="chk"><input type="checkbox" data-path="cfg.builtinHol" ${c.builtinHol !== false ? 'checked' : ''}>使用內建的政府行事曆（2026、2027 年，含補假）</label>
         <p class="hint" style="margin-top:8px">內建資料來自行政院人事行政總處的辦公日曆表：這兩年<b>只補假、不補班</b>。民間公司可能跟政府不同（例如不補假），遇到公司另有公告時，到「班表」點那天改成上班或休息就行。2028 年起要等公告後才會更新。</p>
-        <div class="lbl" style="margin:12px 0 6px">額外的休息日（公司自訂放假，每行一個 YYYY-MM-DD）</div>
-        <textarea id="holidays" placeholder="2026-12-24">${esc(c.holidays.join('\n'))}</textarea>
-        <p class="hint" style="margin-top:8px">目前額外填了 <b>${c.holidays.length}</b> 天。</p></section>
+        <div class="lbl" style="margin:12px 0 6px">額外的休息日（只放「公司整體放假」；每行：日期，後面可接名稱）</div>
+        <textarea id="holidays" placeholder="2026-12-24 公司尾牙">${esc(c.holidays.map(d => d + (c.holNames && c.holNames[d] ? ' ' + c.holNames[d] : '')).join('\n'))}</textarea>
+        <p class="hint" style="margin-top:8px">目前額外填了 <b>${c.holidays.length}</b> 天。<b>自己請的假（喪假、病假、特休…）和颱風假不要填在這裡</b>，到「班表」下方的「登記請假」或點日期選假別，這樣才會正確算薪水、津貼與假別。</p>
+        <div class="row" style="margin-top:12px"><label class="field"><span>颱風假（天災停止上班）的薪水</span><select data-path="cfg.typhoonPaid" data-bool><option value="true" ${c.typhoonPaid !== false ? 'selected' : ''}>照給（不扣薪）</option><option value="false" ${c.typhoonPaid === false ? 'selected' : ''}>不給薪（扣日薪）</option></select></label></div></section>
       <section class="card"><h2>🔒 隱私</h2><label class="chk"><input type="checkbox" data-path="cfg.hide" ${c.hide ? 'checked' : ''}>隱藏所有金額（也可按右上角眼睛）</label>
         <p class="hint" style="margin-top:10px">所有資料只存在這個瀏覽器的 localStorage，沒有帳號、不上傳。換裝置或清除瀏覽資料前，請先匯出備份。</p></section>
       <section class="card"><h2>💾 備份</h2><div class="row"><button class="btn" data-act="export">匯出備份</button><button class="btn" data-act="import">匯入備份</button><button class="btn danger" data-act="reset">全部重設</button></div></section>
@@ -541,16 +543,21 @@
       const lv = S.ui.lv, from = L.parse(lv.from), to = L.parse(lv.to || lv.from);
       if (!from || !to || to < from) { toast('請選好起訖日期（結束日不能早於開始日）'); return; }
       if (L.diffDays(from, to) > 120) { toast('一次最多登記 120 天'); return; }
-      const x = X(); let n = 0;
+      const x = X(); let n = 0, skippedExtra = 0;
       for (let d = from; d <= to; d = L.addDays(d, 1)) {
         const info = L.dayInfo(d, x);
-        if (info.type === 'pre' || !info.regular) continue;       // 到職前、週末、國定假日不登記
+        if (info.type === 'pre') continue;
+        if (!info.regular) {                                       // 週末、國定假日不登記
+          if (info.isHol && !L.HOLIDAYS[info.ds] && (S.cfg.workdays || []).includes(d.getDay())) skippedExtra++;
+          continue;
+        }
         S.overrides[info.ds] = lv.type; n++;
       }
-      if (!n) { toast('這段期間沒有「預定要上班」的日子，沒有登記任何天數'); return; }
+      if (skippedExtra) toast(`有 ${skippedExtra} 天在「設定 → 額外休息日」裡被略過；要登記請先到設定刪掉那幾行，或直接在日曆點那天改假別`);
+      if (!n) { if (!skippedExtra) toast('這段期間沒有「預定要上班」的日子，沒有登記任何天數'); return; }
       S.ui.month = `${from.getFullYear()}-${pad(from.getMonth() + 1)}`;
       lv.from = ''; lv.to = ''; save(); render(true);
-      toast(`已登記 ${n} 天${L.LEAVE[lv.type].name}`);
+      if (!skippedExtra) toast(`已登記 ${n} 天${L.LEAVE[lv.type].name}`);
     },
     lvDel(b) {
       const a = b.dataset.first, z = b.dataset.last;
@@ -619,13 +626,14 @@
       r.readAsText(file);
     } else if (el.dataset.path) {
       let v = el.value;
-      if (el.type === 'checkbox') v = el.checked; else if (el.hasAttribute('data-num')) v = parseFloat(v) || 0;
+      if (el.type === 'checkbox') v = el.checked; else if (el.hasAttribute('data-num')) v = parseFloat(v) || 0; else if (el.hasAttribute('data-bool')) v = v === 'true';
       setPath(el.dataset.path, v); save(); render(true);
     } else if (el.dataset.wd !== undefined) {
       const set = new Set(S.cfg.workdays); el.checked ? set.add(+el.dataset.wd) : set.delete(+el.dataset.wd);
       S.cfg.workdays = [...set].sort(); save(); render(true);
     } else if (el.id === 'holidays') {
-      S.cfg.holidays = L.parseHolidays(el.value); save(); render(true); toast(`已記錄 ${S.cfg.holidays.length} 個假日`);
+      const ph = L.parseHolidayLines(el.value);
+      S.cfg.holidays = ph.dates; S.cfg.holNames = ph.names; save(); render(true); toast(`已記錄 ${S.cfg.holidays.length} 個額外休息日`);
     } else if (el.dataset.tid) {
       const t = S.targets.find(q => String(q.id) === el.dataset.tid); if (!t) return;
       t[el.dataset.field] = el.value; if (el.dataset.field === 'date') t.guess = false;

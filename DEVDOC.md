@@ -22,8 +22,8 @@ tools/make_icon.py    Pillow 畫 icon（藍→綠漸層進度環＋線尾圓環�
 
 ```
 cfg        hire 'YYYY-MM-DD' · salary(固定月薪，實拿) · allowance(每日出勤津貼) · otBase(加班費基準月薪，選填，0=用 salary) · start/end 'HH:MM' · lunchStart · lunchMin · workdays [0-6]
-           holidays [日期] · payday 1-31(0=不顯示) · payTime 'HH:MM' · payOfPrev(發的是上個月薪水) · hide · bonusMonths · bonusProrate
-overrides  { 'YYYY-MM-DD': 'work'|'off'|'annual'|'bereave'|'paid'|'sick'|'personal' }   只存「跟預設不同」的日子
+           holidays [日期] · holNames {日期:名稱，額外休息日的自訂名稱} · typhoonPaid · payday 1-31(0=不顯示) · payTime 'HH:MM' · payOfPrev(發的是上個月薪水) · hide · bonusMonths · bonusProrate
+overrides  { 'YYYY-MM-DD': 'work'|'off'|'annual'|'bereave'|'paid'|'sick'|'personal'|'typhoon' }   只存「跟預設不同」的日子
 ot         { 'YYYY-MM-DD': 小時 }
 targets    [{ id, label, date, guess }]   年終倒數；guess=true 代表還是我們猜的日期，使用者改過日期就變 false
 poop       { start: ms|null, log: [{ t, s秒, e金額, paid }] }
@@ -59,8 +59,13 @@ ui         { tab, month, lv:{type,from,to} }   lv 是「登記請假」表單的
 | paid | 其他帶薪假（婚假、公假等） | 照給 | 無 |
 | sick | 病假 | 半薪（普通傷病假一年 30 日內） | 無 |
 | personal | 事假 | 不給薪 | 無 |
+| typhoon | 颱風假 | 依設定 `cfg.typhoonPaid`（預設照給，可改不給薪） | 無 |
 
 `earner().parts` 用 `ratio` 乘上日薪。事假／病假的扣薪是估算（固定月薪 ÷ 當月領薪日數），公司若以月薪 ÷ 30 計算會有些許出入。班表分頁下方的「登記請假」可一次填一段日期（`ACT.lvApply`，只會填「預定要上班」的日子），並列出合併後的請假紀錄，可整段刪除。舊資料裡的 `sick` 原本標示為「請假」且當全薪，現在是「病假」半薪。
+
+### 假日清單 vs 請假
+
+`cfg.holidays`（設定 →「額外休息日」）只放**公司整體放假**的日子，可在日期後接名稱（`holNames`）。個人請的假、颱風假要用假別登記（班表下方「登記請假」或點日期）。優先序是「手動覆寫 ＞ 假日清單」，所以即使某天誤填在額外休息日，在日曆點那天改假別就會改成請假；班表上只有型態為 `off` 的假日才畫紅色。`lvApply` 遇到被額外休息日略過的日子會提示。
 
 ## 累計收入（今日分頁的「在這間公司累計賺到」）
 

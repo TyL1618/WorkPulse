@@ -177,6 +177,25 @@ t('各種假的薪水與津貼：喪假帶薪但沒有津貼，病假半薪，�
   assert.equal(L.LEAVE.bereave.name, '喪假');
 });
 
+t('颱風假：薪水可設照給或不給薪，都沒有津貼', () => {
+  const mk = paid => { const S = base(); S.cfg.salary = 40000; S.cfg.allowance = 135; S.cfg.typhoonPaid = paid; S.overrides['2026-11-02'] = 'typhoon'; return X(S); };
+  const at = new Date(2026, 10, 2, 18, 0, 0), dp = 40000 / 21;
+  assert.ok(Math.abs(L.earnings(at, mk(true)).today - dp) < 1e-6);      // 照給：日薪全拿、沒有津貼
+  assert.equal(L.earnings(at, mk(false)).today, 0);                     // 不給薪
+  assert.equal(L.leaveRatio('typhoon', { typhoonPaid: false }), 0);
+  assert.equal(L.leaveRatio('bereave', {}), 1);
+  assert.equal(L.leaveRatio('sick', {}), 0.5);
+});
+
+t('額外休息日可帶名稱', () => {
+  const r = L.parseHolidayLines('2026-12-24 公司尾牙\n2027/1/4\n壞資料\n2026-02-30 不存在');
+  assert.deepEqual(r.dates, ['2026-12-24', '2027-01-04']);
+  assert.deepEqual(r.names, { '2026-12-24': '公司尾牙' });
+  const S = base(); S.cfg.holidays = r.dates; S.cfg.holNames = r.names;
+  assert.equal(L.dayInfo(new Date(2026, 11, 24), X(S)).name, '公司尾牙');
+  assert.equal(L.dayInfo(new Date(2027, 0, 4), X(S)).name, '假日');
+});
+
 t('倒數與年終', () => {
   const S = base(); const x = X(S);
   const c = L.countdown('2026-12-31', new Date(2026, 10, 16, 9, 0, 0), x);

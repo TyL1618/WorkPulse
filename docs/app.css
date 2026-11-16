@@ -129,6 +129,8 @@ textarea { min-height: 96px; resize: vertical; font-size: 14px; }
 .day.sick .t, .day.personal .t { color: var(--pink); }
 .day.bereave, .day.paid { background: rgba(185,164,224,.14); border-color: rgba(185,164,224,.55); }
 .day.bereave .t, .day.paid .t { color: #b9a4e0; }
+.day.typhoon { background: rgba(79,195,195,.13); border-color: rgba(79,195,195,.55); }
+.day.typhoon .t { color: #4fc3c3; }
 .day .t { white-space: nowrap; }
 .day.today { box-shadow: 0 0 0 2px var(--blue), 0 0 14px rgba(90,176,232,.5); }
 .day .ot { position: absolute; top: 3px; right: 4px; font-size: 10px; color: var(--orange); font-weight: 700; }

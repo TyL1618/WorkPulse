@@ -80,7 +80,7 @@
   function mkCtx(S) {
     const names = {};
     if (S.cfg.builtinHol !== false) Object.assign(names, HOLIDAYS);
-    for (const d of S.cfg.holidays || []) if (!names[d]) names[d] = '假日';
+    for (const d of S.cfg.holidays || []) if (!names[d]) names[d] = (S.cfg.holNames || {})[d] || '假日';
     return { S, cfg: S.cfg, hol: new Set(Object.keys(names)), holName: names, hire: parse(S.cfg.hire) };
   }
   /** 各種假：薪水比例（ratio）與名稱。出勤津貼一律只有「上班」才有，所以假日／請假都沒有。
@@ -89,7 +89,9 @@
   const LEAVE = {
     annual: { name: '特休', ratio: 1 }, bereave: { name: '喪假', ratio: 1 }, paid: { name: '其他帶薪假', ratio: 1 },
     sick: { name: '病假', ratio: 0.5 }, personal: { name: '事假', ratio: 0 },
+    typhoon: { name: '颱風假', ratio: 1 },        // 薪水依公司規定，設定裡可選照給／不給薪（cfg.typhoonPaid）
   };
+  const leaveRatio = (type, cfg) => (type === 'typhoon' ? (cfg.typhoonPaid === false ? 0 : 1) : LEAVE[type] ? LEAVE[type].ratio : 1);
   /** type: work 上班 / off 休息 / LEAVE 裡的各種假 / pre 到職前 */
   function dayInfo(d, X, ignoreHire) {
     const ds = ymd(d);
@@ -134,7 +136,7 @@
       const t = dayInfo(d, X).type;
       if (t === 'off' || t === 'pre') return [0, 0];
       const al = t === 'work' ? allowanceOf(X.cfg) : 0;          // 出勤津貼只有「上班」那天才有
-      const r = t === 'work' ? 1 : (LEAVE[t] ? LEAVE[t].ratio : 1);   // 各種假的薪水比例
+      const r = t === 'work' ? 1 : leaveRatio(t, X.cfg);   // 各種假的薪水比例
       if (d.getTime() === today.getTime()) return t === 'work' ? [dpay(d) * frac, al * frac] : [dpay(d) * r, 0];
       return d < today ? [dpay(d) * r, al] : [0, 0];
     };
@@ -347,9 +349,24 @@
     return [...out].sort();
   }
 
+  /** 每行「日期 名稱」，名稱選填（例如 2026-10-23 公司放假）。回傳 { dates, names } */
+  function parseHolidayLines(text) {
+    const names = {}, dates = new Set();
+    for (const line of String(text || '').split(/\r?\n/)) {
+      const m = /(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})[\s,;]*(.*)$/.exec(line);
+      if (!m) continue;
+      const d = `${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
+      if (!parse(d)) continue;
+      dates.add(d);
+      const nm = m[4].replace(/[\s,;]+$/, '').slice(0, 6);
+      if (nm) names[d] = nm;
+    }
+    return { dates: [...dates].sort(), names };
+  }
+
   const api = {
     pad, ymd, parse, startOfDay, addDays, diffDays, addMonths, hm, win, totalWork, workedAt, phase,
-    HOLIDAYS, LEAVE, mkCtx, dayInfo, countType, monthPayDays, dailyPay, allowanceOf, ratePerSec, otSalary, earner, earnings, otKind, payMoment, monthlyReport, fullMonths, hireInfo,
+    HOLIDAYS, LEAVE, leaveRatio, parseHolidayLines, mkCtx, dayInfo, countType, monthPayDays, dailyPay, allowanceOf, ratePerSec, otSalary, earner, earnings, otKind, payMoment, monthlyReport, fullMonths, hireInfo,
     workedDays, leaveEntitlement, leavePeriod, otPay, countdown, bonusEstimate, nextPayday,
     money, clock, humanWork, parseHolidays,
   };

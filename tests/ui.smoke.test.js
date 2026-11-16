@@ -25,9 +25,10 @@ function boot(initial) {
     const b = { dataset: { act, ...data }, tagName: 'BUTTON' };
     listeners.click({ target: { closest: () => b }, preventDefault() {} });
   };
-  const change = (p, value) => listeners.change({ target: { dataset: { path: p }, value, type: 'text', hasAttribute: () => false } });
+  const change = (p, value, attrs = []) => listeners.change({ target: { dataset: { path: p }, value, type: 'text', hasAttribute: a => attrs.includes(a) } });
+  const changeId = (id, value) => listeners.change({ target: { id, dataset: {}, value, type: 'text', hasAttribute: () => false } });
   const saved = () => JSON.parse(store['workpulse.v1']);
-  return { els, click, change, saved, view: () => els['#view'].innerHTML, toast: () => els['#toast'].textContent };
+  return { els, click, change, changeId, saved, view: () => els['#view'].innerHTML, toast: () => els['#toast'].textContent };
 }
 
 let n = 0;
@@ -73,6 +74,38 @@ t('登記請假的防呆', () => {
   a.change('ui.lv.from', '2026-10-20'); a.change('ui.lv.to', '2026-10-19');       // 顛倒
   a.click('lvApply'); assert.match(a.toast(), /不能早於/);
   assert.deepEqual(a.saved().overrides || {}, {});
+});
+
+t('額外休息日裡的日子可以改成喪假／颱風假：請假類型優先，不再顯示成「假日」', () => {
+  // 重現實際情況：10/1(喪假)、10/23(颱風假) 先被填進「額外休息日」
+  const a = boot({ cfg: { ...cfg, holidays: ['2026-10-01', '2026-10-23'] }, ui: { tab: 'cal', month: '2026-10' } });
+  const cell = ds => (a.view().match(new RegExp('<button class="day ([^"]*)" data-act="day" data-ds="' + ds + '">[\\s\\S]*?</button>')) || [])[0] || '';
+  assert.match(cell('2026-10-01'), /class="day off hol/);     // 目前被當成假日
+  assert.match(cell('2026-10-01'), /假日/);
+  a.click('day', { ds: '2026-10-01' }); a.click('setType', { t: 'bereave' });
+  a.click('day', { ds: '2026-10-23' }); a.click('setType', { t: 'typhoon' });
+  assert.match(cell('2026-10-01'), /class="day bereave/); assert.doesNotMatch(cell('2026-10-01'), /hol/); assert.match(cell('2026-10-01'), /喪假/);
+  assert.match(cell('2026-10-23'), /class="day typhoon/); assert.match(cell('2026-10-23'), /颱風假/);
+  assert.equal(a.saved().overrides['2026-10-01'], 'bereave');
+  assert.equal(a.saved().overrides['2026-10-23'], 'typhoon');
+  assert.match(a.view(), /喪假 1、颱風假 1|颱風假 1、喪假 1/);   // 月統計分開計算
+});
+
+t('登記請假遇到「額外休息日」會提示，不會默默略過', () => {
+  const a = boot({ cfg: { ...cfg, holidays: ['2026-10-01'] }, ui: { tab: 'cal' } });
+  a.change('ui.lv.type', 'bereave'); a.change('ui.lv.from', '2026-10-01'); a.click('lvApply');
+  assert.match(a.toast(), /額外休息日/);
+  assert.deepEqual(a.saved().overrides || {}, {});
+});
+
+t('額外休息日可取名字；颱風假薪水可設照給／不給薪', () => {
+  const a = boot({ cfg, ui: { tab: 'set' } });
+  a.changeId('holidays', '2026-12-24 公司尾牙\n2027/1/4');
+  assert.deepEqual(a.saved().cfg.holidays, ['2026-12-24', '2027-01-04']);
+  assert.deepEqual(a.saved().cfg.holNames, { '2026-12-24': '公司尾牙' });
+  assert.match(a.view(), /2026-12-24 公司尾牙/);
+  a.change('cfg.typhoonPaid', 'false', ['data-bool']);
+  assert.equal(a.saved().cfg.typhoonPaid, false);
 });
 
 t('病假、事假、特休各自記錄；特休會計入特休用量', () => {
