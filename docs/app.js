@@ -144,6 +144,13 @@
       o.poopTimer = L.clock(s);
       o.poopEarn = info.type === 'work' ? `+${M(curRate() * s, 2)}` : '休息日不算帶薪';
     }
+    const rep = L.monthlyReport(now, x);
+    o.cum = M(rep.total, 2); o.cumBase = M(rep.base); o.cumAllow = M(rep.allow); o.cumOt = M(rep.ot);
+    o.cumPaid = M(rep.paid); o.cumPend = M(rep.pending);
+    const lastM = rep.months[rep.months.length - 1];
+    o.cumCur = lastM ? M(lastM.total) : '';
+    const fun = S.items.find(i => i.n.includes('手搖')) || S.items[0];
+    o.cumFun = fun && fun.p > 0 && rep.total > 0 ? `約等於 ${Math.floor(rep.total / fun.p).toLocaleString('en-US')} 個「${fun.n}」` : '';
     const pdl = L.nextPayday(now, S.cfg.payday, S.cfg.payTime);
     if (pdl) {
       const s = Math.max(0, Math.floor((pdl.at - now) / 1000)), dd = Math.floor(s / 86400);
@@ -183,9 +190,26 @@
       <div class="sub">今天已經賺到（趣味版：固定月薪 ÷ 當月領薪日，再加每日出勤津貼，按工作秒數累積）</div>
       <div class="bar"><i data-live-w="pct"></i></div>
       <div class="row sp sub" style="margin-top:8px"><span class="neon-num" data-live="left"></span><span data-live="rate"></span></div>
-      <div class="kv3"><div><div class="lbl">本月已賺</div><div class="mid" data-live="month"></div></div>
-      <div><div class="lbl">今年已賺</div><div class="mid" data-live="year"></div></div>
-      <div><div class="lbl">到職至今</div><div class="mid" data-live="total"></div></div></div></section>`;
+      <div class="kv2"><div><div class="lbl">本月已賺</div><div class="mid" data-live="month"></div></div>
+      <div><div class="lbl">今年已賺</div><div class="mid" data-live="year"></div></div></div></section>`;
+
+    // 累計收入（到職至今）
+    const rep = L.monthlyReport(now, x), md = d => `${d.getMonth() + 1}/${d.getDate()}`;
+    const lastPaid = rep.months.filter(r => r.paid).map(r => r.payAt).pop();
+    h += `<section class="card span2"><h2>🏦 在這間公司累計賺到 <span class="tag">${x.hire ? '到職 ' + esc(c.hire) : ''}</span></h2>
+      <div class="big green" data-live="cum">$0.00</div>
+      <div class="sub" data-live="cumFun"></div>
+      <div class="kv3"><div><div class="lbl">固定薪水</div><div class="mid" data-live="cumBase"></div></div>
+        <div><div class="lbl">出勤津貼</div><div class="mid" data-live="cumAllow"></div></div>
+        <div><div class="lbl">加班費（已登記）</div><div class="mid" data-live="cumOt"></div></div></div>
+      <div class="kv2"><div><div class="lbl">已入帳${lastPaid ? `（到 ${md(lastPaid)}）` : ''}</div><div class="mid" data-live="cumPaid"></div></div>
+        <div><div class="lbl">還沒入帳</div><div class="mid" data-live="cumPend"></div></div></div>
+      ${rep.months.length ? `<details style="margin-top:12px"><summary class="hint" style="cursor:pointer">逐月明細</summary><div class="list" style="margin-top:6px">${rep.months.slice().reverse().map((r, i) => {
+        const cur = i === 0 && !r.ended;
+        const st = r.paid ? '<span class="pill green">已入帳</span>' : cur ? '<span class="pill blue">累積中</span>' : r.payAt ? `<span class="pill gold">預計 ${md(r.payAt)} 入帳</span>` : '';
+        return `<div><div class="grow"><b>${r.y !== now.getFullYear() ? r.y + ' 年 ' : ''}${r.m + 1} 月</b> <span class="hint">上班 ${r.work} 天${r.ot > 0 ? ' · 含加班' : ''}</span></div><div class="r" ${cur ? 'data-live="cumCur"' : ''}>${cur ? '' : M(r.total)}</div><div class="r">${st}</div></div>`;
+      }).join('')}</div></details>` : ''}
+      <p class="hint" style="margin-top:10px">這是依你填的固定月薪、津貼與班表推算的估算，不是薪資單：到職那個月按在職天數推算，勞健保已經扣掉（月薪填的是實拿），加班費只算你在班表登記過的時數，而且用的是法定倍率。實際入帳以薪資單為準。</p></section>`;
 
     // 資歷
     let leaveTxt = '—', leaveSub = '';

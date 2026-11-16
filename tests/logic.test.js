@@ -141,6 +141,28 @@ t('內建國定假日（2026、2027）', () => {
   assert.equal(L.dayInfo(new Date(2026, 8, 24), X(S)).name, '假日');
 });
 
+t('到職至今累計與逐月入帳', () => {
+  const S = base(); S.cfg.salary = 40000; S.cfg.allowance = 135; S.cfg.payday = 10; S.cfg.payTime = '01:00'; S.cfg.payOfPrev = true;
+  S.ot['2026-10-12'] = 2;                                          // 10/12 週一加班 2 小時
+  const x = X(S), now = new Date(2026, 10, 16, 15, 0, 0);
+  const rep = L.monthlyReport(now, x);
+  assert.equal(rep.months.length, 7);                              // 5~11 月
+  assert.deepEqual(rep.months.map(r => r.paid), [true, true, true, true, true, true, false]);   // 11 月還沒結束
+  for (const r of rep.months.slice(1, 6)) assert.ok(Math.abs(r.base - 40000) < 1e-6, `${r.m + 1}月 ${r.base}`);   // 整月在職＝固定薪全拿
+  const wd = (y, m) => { let n = 0; for (let d = new Date(y, m, 1); d.getMonth() === m; d = L.addDays(d, 1)) if (d.getDay() >= 1 && d.getDay() <= 5) n++; return n; };
+  assert.ok(Math.abs(rep.months[5].allow - 135 * wd(2026, 9)) < 1e-6);          // 10 月津貼
+  assert.equal(rep.months[5].ot, Math.round(40000 / 240 * 1.34 * 2));
+  const e = L.earnings(now, x);
+  assert.ok(Math.abs(rep.base + rep.allow - e.total) < 1e-6);      // 與「到職至今」一致
+  assert.ok(Math.abs(rep.total - (e.total + rep.ot)) < 1e-6);
+  assert.ok(Math.abs(rep.paid + rep.pending - rep.total) < 1e-6);
+  assert.ok(Math.abs(rep.pending - rep.months[6].total) < 1e-6);   // 沒入帳的只有 11 月
+  // 入帳時間點：10 號 01:00 之前 10 月薪還沒到
+  assert.equal(L.monthlyReport(new Date(2026, 10, 10, 0, 30), x).months[5].paid, false);
+  assert.equal(L.monthlyReport(new Date(2026, 10, 10, 1, 30), x).months[5].paid, true);
+  assert.equal(L.monthlyReport(now, L.mkCtx({ ...S, cfg: { ...S.cfg, hire: '' } })).total, 0);
+});
+
 t('倒數與年終', () => {
   const S = base(); const x = X(S);
   const c = L.countdown('2026-12-31', new Date(2026, 10, 16, 9, 0, 0), x);

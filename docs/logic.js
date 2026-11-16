@@ -112,8 +112,9 @@
   /** 加班費時薪的基準月薪：有填「應領」就用它，否則用月薪（實拿） */
   const otSalary = cfg => (+cfg.otBase > 0 ? +cfg.otBase : +cfg.salary || 0);
 
-  /* ───────── 賺了多少（趣味版：月薪 ÷ 當月領薪日 ÷ 工作秒數）───────── */
-  function earnings(now, X) {
+  /* ───────── 賺了多少（趣味版：固定月薪 ÷ 當月領薪日 ＋ 每日津貼）───────── */
+  /** 每天的收入拆成 [固定薪, 津貼]；今天按已工作比例累積，未來是 0 */
+  function earner(now, X) {
     const today = startOfDay(now);
     const sec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
     const frac = workedAt(sec, X.cfg) / totalWork(X.cfg);
@@ -122,13 +123,18 @@
       const k = d.getFullYear() * 12 + d.getMonth();
       return cache[k] !== undefined ? cache[k] : (cache[k] = dailyPay(d.getFullYear(), d.getMonth(), X));
     };
-    const dayEarn = d => {
+    const parts = d => {
       const t = dayInfo(d, X).type;
-      if (t === 'off' || t === 'pre') return 0;
+      if (t === 'off' || t === 'pre') return [0, 0];
       const al = t === 'work' ? allowanceOf(X.cfg) : 0;          // 出勤津貼只有「上班」那天才有
-      if (d.getTime() === today.getTime()) return t === 'work' ? (dpay(d) + al) * frac : dpay(d);
-      return d < today ? dpay(d) + al : 0;
+      if (d.getTime() === today.getTime()) return t === 'work' ? [dpay(d) * frac, al * frac] : [dpay(d), 0];
+      return d < today ? [dpay(d), al] : [0, 0];
     };
+    return { today, parts, done: sec >= win(X.cfg).e };
+  }
+  function earnings(now, X) {
+    const er = earner(now, X), today = er.today;
+    const dayEarn = d => { const p = er.parts(d); return p[0] + p[1]; };
     const sum = from => {
       let s = 0;
       for (let d = startOfDay(from); d <= today; d = addDays(d, 1)) s += dayEarn(d);
@@ -143,6 +149,42 @@
       total: X.hire ? sum(X.hire) : 0,
       rateSec: ratePerSec(today, X),
     };
+  }
+  /** 加班費的日類型：假日清單 → holiday；預設上班日 → weekday；其餘 → rest */
+  const otKind = info => (info.isHol ? 'holiday' : info.regular ? 'weekday' : 'rest');
+  /** 入帳時間點：每月 payday 號 payTime；payOfPrev 表示這天發的是「上個月」的薪水 */
+  function payMoment(y, m, cfg) {
+    const day = Math.floor(+cfg.payday || 0);
+    if (day < 1 || day > 31) return null;
+    const tm = cfg.payOfPrev ? m + 1 : m;
+    const d = new Date(y, tm, Math.min(day, new Date(y, tm + 1, 0).getDate()));
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, hm(cfg.payTime || '00:00'));
+  }
+  /** 到職至今逐月明細與累計。paid＝這個月的薪水已經過了入帳時間（月份也已結束） */
+  function monthlyReport(now, X) {
+    if (!X.hire) return { months: [], base: 0, allow: 0, ot: 0, total: 0, paid: 0, pending: 0 };
+    const er = earner(now, X), today = er.today, months = [];
+    let y = X.hire.getFullYear(), m = X.hire.getMonth();
+    const endKey = today.getFullYear() * 12 + today.getMonth();
+    while (y * 12 + m <= endKey) {
+      const first = new Date(y, m, 1), last = new Date(y, m + 1, 0);
+      const r = { y, m, base: 0, allow: 0, ot: 0, work: 0 };
+      for (let d = first; d <= last && d <= today; d = addDays(d, 1)) {
+        const p = er.parts(d), info = dayInfo(d, X);
+        r.base += p[0]; r.allow += p[1];
+        if (info.type === 'work' && (d < today || er.done)) r.work++;
+        if (info.ot > 0 && info.type !== 'pre') r.ot += otPay(otSalary(X.cfg), info.ot, otKind(info)).total;
+      }
+      r.total = r.base + r.allow + r.ot;
+      r.ended = last < today;
+      r.payAt = payMoment(y, m, X.cfg);
+      r.paid = !!(r.ended && r.payAt && r.payAt <= now);
+      months.push(r);
+      m++; if (m > 11) { m = 0; y++; }
+    }
+    const sum = f => months.reduce((t, r) => t + f(r), 0);
+    const total = sum(r => r.total), paid = sum(r => (r.paid ? r.total : 0));
+    return { months, base: sum(r => r.base), allow: sum(r => r.allow), ot: sum(r => r.ot), total, paid, pending: total - paid };
   }
 
   /* ───────── 資歷 ───────── */
@@ -299,7 +341,7 @@
 
   const api = {
     pad, ymd, parse, startOfDay, addDays, diffDays, addMonths, hm, win, totalWork, workedAt, phase,
-    HOLIDAYS, mkCtx, dayInfo, countType, monthPayDays, dailyPay, allowanceOf, ratePerSec, otSalary, earnings, fullMonths, hireInfo,
+    HOLIDAYS, mkCtx, dayInfo, countType, monthPayDays, dailyPay, allowanceOf, ratePerSec, otSalary, earner, earnings, otKind, payMoment, monthlyReport, fullMonths, hireInfo,
     workedDays, leaveEntitlement, leavePeriod, otPay, countdown, bonusEstimate, nextPayday,
     money, clock, humanWork, parseHolidays,
   };
