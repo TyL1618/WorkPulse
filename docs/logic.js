@@ -226,14 +226,19 @@
     if (X.cfg.bonusProrate && X.hire) ratio = clamp(diffDays(X.hire, t) / 365.25, 0, 1);
     return { ratio, amount: Math.round(sal * mo * ratio) };
   }
-  function nextPayday(now, day) {
+  /** 下一次入帳：每月 day 號 time（HH:MM）；今天已過入帳時間就算下個月。at 是精確時間點。 */
+  function nextPayday(now, day, time) {
     day = Math.floor(+day || 0);
     if (day < 1 || day > 31) return null;
-    const today = startOfDay(now);
-    const mk = (y, m) => new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()));
-    let t = mk(today.getFullYear(), today.getMonth());
-    if (t < today) t = mk(today.getFullYear(), today.getMonth() + 1);
-    return { date: t, days: diffDays(today, t) };
+    const sec = hm(time || '00:00'), today = startOfDay(now);
+    const mk = (y, m) => {
+      const d = new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()));
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, sec);
+    };
+    let at = mk(today.getFullYear(), today.getMonth());
+    if (at <= now) at = mk(today.getFullYear(), today.getMonth() + 1);
+    const date = startOfDay(at);
+    return { date, at, days: diffDays(today, date) };
   }
 
   /* ───────── 格式化 ───────── */

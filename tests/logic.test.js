@@ -131,6 +131,11 @@ t('發薪日、格式化、假日解析', () => {
   assert.equal(L.ymd(L.nextPayday(new Date(2026, 10, 16), 5).date), '2026-12-05');
   assert.equal(L.ymd(L.nextPayday(new Date(2026, 10, 16), 30).date), '2026-11-30');
   assert.equal(L.nextPayday(new Date(), 0), null);
+  // 每月 10 號 01:00 入帳
+  const a = L.nextPayday(new Date(2026, 10, 10, 0, 30), 10, '01:00');          // 入帳前 30 分鐘
+  assert.equal(L.ymd(a.date), '2026-11-10'); assert.equal(a.days, 0); assert.equal(a.at - new Date(2026, 10, 10, 0, 30), 30 * 60e3);
+  assert.equal(L.ymd(L.nextPayday(new Date(2026, 10, 10, 2, 0), 10, '01:00').date), '2026-12-10');   // 已入帳，算下個月
+  assert.equal(L.ymd(L.nextPayday(new Date(2026, 11, 20), 10, '01:00').date), '2027-01-10');        // 跨年
   assert.equal(L.money(1234.5, 2), '$1,234.50');
   assert.equal(L.clock(3725), '01:02:05');
   const cfg = base().cfg;

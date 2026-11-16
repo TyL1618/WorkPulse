@@ -1,4 +1,4 @@
-const CACHE = 'wp-v2';
+const CACHE = 'wp-v3';
 const SHELL = ['./', 'index.html', 'app.css', 'app.js', 'logic.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

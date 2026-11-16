@@ -21,7 +21,7 @@ tools/make_icon.py    Pillow 畫 icon（藍→綠漸層進度環＋線尾圓環�
 
 ```
 cfg        hire 'YYYY-MM-DD' · salary(固定月薪，實拿) · allowance(每日出勤津貼) · otBase(加班費基準月薪，選填，0=用 salary) · start/end 'HH:MM' · lunchStart · lunchMin · workdays [0-6]
-           holidays [日期] · payday 1-31(0=不顯示) · hide · bonusMonths · bonusProrate
+           holidays [日期] · payday 1-31(0=不顯示) · payTime 'HH:MM' · payOfPrev(發的是上個月薪水) · hide · bonusMonths · bonusProrate
 overrides  { 'YYYY-MM-DD': 'work'|'off'|'annual'|'sick' }   只存「跟預設不同」的日子
 ot         { 'YYYY-MM-DD': 小時 }
 targets    [{ id, label, date, guess }]   年終倒數；guess=true 代表還是我們猜的日期，使用者改過日期就變 false
@@ -48,6 +48,10 @@ ui         { tab, month }
   - 國定假日：加發一日工資（8 小時 ×1），超過 8 小時再依 1.34／1.67。
   - 例假日不計算（原則上不能要求出勤）。
 - **特休**：勞基法第 38 條週年制最低標準（滿 6 個月 3 天、1 年 7、2 年 10、3–4 年 14、5–9 年 15、10 年起每年 +1 至 30）。已排天數來自 `overrides` 裡落在「本期」的 `annual`。公司若用曆年制或給更多，這裡不會知道。
+
+## 發薪日
+
+`L.nextPayday(now, day, time)` 回傳下一次入帳的精確時間點（今天已過入帳時間就算下個月，月底自動縮到該月最後一天）。今日分頁的倒數是 `data-live="payLeft"`（天＋時分秒）；「預計入帳」＝入帳月份（`payOfPrev` 時為前一個月）的 `monthCounts().expect`，不含加班費。
 
 ## 年終
 

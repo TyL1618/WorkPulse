@@ -14,7 +14,7 @@
     v: 1,
     cfg: {
       hire: '', salary: 0, allowance: 0, otBase: 0, start: '09:00', end: '18:00', lunchStart: '12:00', lunchMin: 60,
-      workdays: [1, 2, 3, 4, 5], holidays: [], payday: 0, hide: false, bonusMonths: 1, bonusProrate: false,
+      workdays: [1, 2, 3, 4, 5], holidays: [], payday: 10, payTime: '01:00', payOfPrev: true, hide: false, bonusMonths: 1, bonusProrate: false,
     },
     overrides: {}, ot: {},
     targets: [
@@ -143,7 +143,12 @@
       o.poopTimer = L.clock(s);
       o.poopEarn = info.type === 'work' ? `+${M(curRate() * s, 2)}` : '休息日不算帶薪';
     }
-    const mt = S.meeting, es = mt.acc + (mt.start ? (Date.now() - mt.start) / 1000 : 0);
+    const pdl = L.nextPayday(now, S.cfg.payday, S.cfg.payTime);
+    if (pdl) {
+      const s = Math.max(0, Math.floor((pdl.at - now) / 1000)), dd = Math.floor(s / 86400);
+      o.payLeft = dd > 0 ? `${dd} 天 ${L.clock(s % 86400)}` : L.clock(s);
+    }
+    const mt = S.meeting, es =mt.acc + (mt.start ? (Date.now() - mt.start) / 1000 : 0);
     const hourly = mt.hourly > 0 ? mt.hourly : curRate() * 3600;
     o.meetTime = L.clock(es);
     o.meetCost = M(mt.n * hourly / 3600 * es, 0);
@@ -215,11 +220,17 @@
       <button class="btn poop-btn ${running ? 'run' : 'primary'}" data-act="poopToggle" style="margin-top:12px">${running ? '🧻 結束（按下去算錢）' : '🚽 開始'}</button></section>`;
 
     // 週 / 發薪日
-    const pd = L.nextPayday(now, c.payday);
+    const pd = L.nextPayday(now, c.payday, c.payTime);
+    let payNote = '';
+    if (pd && c.salary > 0) {
+      const pm = new Date(pd.date.getFullYear(), pd.date.getMonth() - (c.payOfPrev ? 1 : 0), 1);
+      const mc = monthCounts(pm.getFullYear(), pm.getMonth(), now);
+      payNote = `<div class="sub" style="margin-top:10px">預計入帳 <b>${pm.getMonth() + 1} 月薪資 ${M(mc.expect)}</b>（固定月薪＋${mc.work} 天津貼，不含加班費；以薪資單為準）</div>`;
+    }
     h += `<section class="card"><h2>📆 這週與發薪日</h2>
       <div class="row sp"><div><div class="lbl">本週進度</div><div class="sub">還剩 <b class="neon-num" data-live="weekLeft"></b> 個上班日</div></div>
-      ${pd ? `<div style="text-align:right"><div class="lbl">發薪日倒數</div><div class="mid">${pd.days === 0 ? '今天 🎉' : pd.days + ' 天'}</div></div>` : ''}</div>
-      <div class="bar"><i data-live-w="weekPct"></i></div>
+      ${pd ? `<div style="text-align:right"><div class="lbl">距離入帳（${pd.date.getMonth() + 1}/${pd.date.getDate()} ${esc(c.payTime)}）</div><div class="mid neon-num" data-live="payLeft"></div></div>` : ''}</div>
+      <div class="bar"><i data-live-w="weekPct"></i></div>${payNote}
       ${pd ? '' : '<p class="hint" style="margin-top:10px">到「設定」填發薪日（每月幾號），這裡就會出現倒數。</p>'}</section>`;
     return h + '</div>';
   }
@@ -412,7 +423,9 @@
         <label class="field"><span>固定月薪（實拿，不含出勤津貼；只存在這台裝置）</span><input type="number" min="0" inputmode="numeric" data-path="cfg.salary" data-num value="${c.salary || ''}"></label>
         <label class="field"><span>每日出勤津貼（午餐＋交通等，上班才有；特休、請假、假日沒有）</span><input type="number" min="0" inputmode="numeric" data-path="cfg.allowance" data-num value="${c.allowance || ''}" placeholder="例如 135"></label>
         <label class="field"><span>加班費計算用的月薪（選填：薪資單的「應領」，未扣勞健保；空白＝用上面的固定月薪）</span><input type="number" min="0" inputmode="numeric" data-path="cfg.otBase" data-num value="${c.otBase || ''}" placeholder="不確定就留空"></label>
-        <label class="field"><span>發薪日（每月幾號，0＝不顯示）</span><input type="number" min="0" max="31" inputmode="numeric" data-path="cfg.payday" data-num value="${c.payday || ''}" placeholder="例如 5"></label></div></section>
+        <div class="row"><label class="field"><span>發薪日（每月幾號，0＝不顯示）</span><input type="number" min="0" max="31" inputmode="numeric" data-path="cfg.payday" data-num value="${c.payday || ''}" placeholder="例如 10"></label>
+        <label class="field"><span>入帳時間</span><input type="time" data-path="cfg.payTime" value="${c.payTime}"></label></div>
+        <label class="chk"><input type="checkbox" data-path="cfg.payOfPrev" ${c.payOfPrev ? 'checked' : ''}>發的是「上個月」的薪水（例如 12/10 領 11 月薪）</label></div></section>
       <section class="card"><h2>🕘 上下班時間</h2><div class="stack"><div class="row">
         <label class="field"><span>上班</span><input type="time" data-path="cfg.start" value="${c.start}"></label>
         <label class="field"><span>下班</span><input type="time" data-path="cfg.end" value="${c.end}"></label></div><div class="row">
