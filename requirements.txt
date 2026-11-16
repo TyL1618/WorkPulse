@@ -1,0 +1,6 @@
+# WorkPulse 本體是純前端 PWA（HTML/CSS/JS），執行與部署都不需要 Python。
+# 只有「產生 icon」的 tools/make_icon.py 需要 Pillow：
+#     pip install -r requirements.txt
+#     python tools/make_icon.py
+# 版本取自 2026-11 這台實際執行驗證過的組合。
+pillow==12.2.0

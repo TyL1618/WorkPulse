@@ -1,0 +1,270 @@
+/* WorkPulse · 純計算邏輯（不碰 DOM，Node 也能跑測試）
+ * 日期一律用「本機時間」；字串日期格式 YYYY-MM-DD。 */
+(function (root) {
+  'use strict';
+
+  const pad = n => String(n).padStart(2, '0');
+  const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  function parse(s) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return d.getMonth() === +m[2] - 1 ? d : null;
+  }
+  const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  const diffDays = (a, b) =>
+    Math.round((Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) -
+                Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / 864e5);
+  function addMonths(d, n) {
+    const t = new Date(d.getFullYear(), d.getMonth() + n, 1);
+    const last = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+    return new Date(t.getFullYear(), t.getMonth(), Math.min(d.getDate(), last));
+  }
+  const hm = s => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(s || '');
+    return m ? +m[1] * 3600 + +m[2] * 60 : 0;
+  };
+  const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
+
+  /* ───────── 上下班時間 ───────── */
+  function win(cfg) {
+    const s = hm(cfg.start), e = Math.max(hm(cfg.end), s + 60);
+    const ls = clamp(hm(cfg.lunchStart), s, e);
+    const le = clamp(ls + (+cfg.lunchMin || 0) * 60, s, e);
+    return { s, e, ls, le };
+  }
+  function totalWork(cfg) {
+    const w = win(cfg);
+    return Math.max(1, (w.e - w.s) - (w.le - w.ls));
+  }
+  /** 當天第 sec 秒（0~86400）時，已經工作了幾秒（扣午休） */
+  function workedAt(sec, cfg) {
+    const w = win(cfg);
+    return (clamp(sec, w.s, w.e) - w.s) - (clamp(sec, w.ls, w.le) - w.ls);
+  }
+  function phase(sec, cfg) {
+    const w = win(cfg);
+    if (sec < w.s) return 'before';
+    if (sec >= w.e) return 'after';
+    if (w.le > w.ls && sec >= w.ls && sec < w.le) return 'lunch';
+    return 'working';
+  }
+
+  /* ───────── 班表 ───────── */
+  function mkCtx(S) {
+    return { S, cfg: S.cfg, hol: new Set(S.cfg.holidays || []), hire: parse(S.cfg.hire) };
+  }
+  /** type: work 上班 / off 休息 / annual 特休 / sick 請假 / pre 到職前 */
+  function dayInfo(d, X, ignoreHire) {
+    const ds = ymd(d);
+    if (!ignoreHire && X.hire && d < X.hire) return { ds, type: 'pre', regular: false, isHol: false, ov: false, ot: 0 };
+    const ov = X.S.overrides[ds] || null;
+    const isHol = X.hol.has(ds);
+    const regular = (X.cfg.workdays || []).includes(d.getDay()) && !isHol;
+    return { ds, type: ov || (regular ? 'work' : 'off'), regular, isHol, ov: !!ov, ot: +X.S.ot[ds] || 0 };
+  }
+  function countType(from, to, X, types) {
+    let n = 0;
+    for (let d = startOfDay(from); d <= to; d = addDays(d, 1)) {
+      if (types.includes(dayInfo(d, X).type)) n++;
+    }
+    return n;
+  }
+  function monthPayDays(y, m, X) {
+    const last = new Date(y, m + 1, 0).getDate();
+    let n = 0;
+    for (let i = 1; i <= last; i++) if (dayInfo(new Date(y, m, i), X, true).type !== 'off') n++;
+    return n;
+  }
+  const dailyPay = (y, m, X) => (+X.cfg.salary || 0) / Math.max(1, monthPayDays(y, m, X));
+  const ratePerSec = (d, X) => dailyPay(d.getFullYear(), d.getMonth(), X) / totalWork(X.cfg);
+
+  /* ───────── 賺了多少（趣味版：月薪 ÷ 當月領薪日 ÷ 工作秒數）───────── */
+  function earnings(now, X) {
+    const today = startOfDay(now);
+    const sec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+    const frac = workedAt(sec, X.cfg) / totalWork(X.cfg);
+    const cache = {};
+    const dpay = d => {
+      const k = d.getFullYear() * 12 + d.getMonth();
+      return cache[k] !== undefined ? cache[k] : (cache[k] = dailyPay(d.getFullYear(), d.getMonth(), X));
+    };
+    const dayEarn = d => {
+      const t = dayInfo(d, X).type;
+      if (t === 'off' || t === 'pre') return 0;
+      if (d.getTime() === today.getTime()) return t === 'work' ? dpay(d) * frac : dpay(d);
+      return d < today ? dpay(d) : 0;
+    };
+    const sum = from => {
+      let s = 0;
+      for (let d = startOfDay(from); d <= today; d = addDays(d, 1)) s += dayEarn(d);
+      return s;
+    };
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const yearStart = new Date(today.getFullYear(), 0, 1);
+    return {
+      today: dayEarn(today),
+      month: sum(monthStart),
+      year: sum(yearStart),
+      total: X.hire ? sum(X.hire) : 0,
+      rateSec: ratePerSec(today, X),
+    };
+  }
+
+  /* ───────── 資歷 ───────── */
+  function fullMonths(hire, now) {
+    let m = (now.getFullYear() - hire.getFullYear()) * 12 + now.getMonth() - hire.getMonth();
+    if (now.getDate() < hire.getDate() && now.getDate() !== new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()) m--;
+    return Math.max(0, m);
+  }
+  function hireInfo(now, X) {
+    if (!X.hire) return null;
+    const today = startOfDay(now);
+    const months = fullMonths(X.hire, today);
+    const days = Math.max(0, diffDays(addMonths(X.hire, months), today));
+    return { day: diffDays(X.hire, today) + 1, months, days };
+  }
+  /** 實際累積上班天數：到職日起、已經上完的「上班」日（今天要過了下班時間才算） */
+  function workedDays(now, X) {
+    if (!X.hire) return 0;
+    const today = startOfDay(now);
+    const sec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+    const todayDone = sec >= win(X.cfg).e;
+    const to = todayDone ? today : addDays(today, -1);
+    return to < X.hire ? 0 : countType(X.hire, to, X, ['work']);
+  }
+
+  /* ───────── 特休（勞基法第 38 條，週年制）───────── */
+  function leaveEntitlement(totalMonths) {
+    if (totalMonths < 6) return 0;
+    if (totalMonths < 12) return 3;
+    const y = Math.floor(totalMonths / 12);
+    if (y < 2) return 7;
+    if (y < 3) return 10;
+    if (y < 5) return 14;
+    if (y < 10) return 15;
+    return Math.min(30, 15 + (y - 9));
+  }
+  function leavePeriod(now, X) {
+    if (!X.hire) return null;
+    const today = startOfDay(now);
+    const m = fullMonths(X.hire, today);
+    let start = null, end, entitled = leaveEntitlement(m);
+    if (m < 6) { end = addMonths(X.hire, 6); }
+    else if (m < 12) { start = addMonths(X.hire, 6); end = addMonths(X.hire, 12); }
+    else { const y = Math.floor(m / 12); start = addMonths(X.hire, 12 * y); end = addMonths(X.hire, 12 * (y + 1)); }
+    let used = 0;
+    if (start) {
+      for (const ds of Object.keys(X.S.overrides)) {
+        if (X.S.overrides[ds] !== 'annual') continue;
+        const d = parse(ds);
+        if (d && d >= start && d < end) used++;
+      }
+    }
+    const nextY = Math.max(1, Math.floor(m / 12) + 1);
+    return {
+      entitled, used, remaining: Math.max(0, entitled - used), start, end,
+      next: m < 6 ? { date: addMonths(X.hire, 6), days: 3 }
+                  : { date: addMonths(X.hire, 12 * nextY), days: leaveEntitlement(12 * nextY) },
+    };
+  }
+
+  /* ───────── 加班費（勞基法第 24 條，月薪 ÷ 30 ÷ 8 為時薪）───────── */
+  function otPay(salary, hours, kind) {
+    const hr = (+salary || 0) / 240;
+    hours = Math.max(0, +hours || 0);
+    const rows = [];
+    let total = 0, billed = hours, warn = '';
+    const add = (label, h, mult) => {
+      if (h <= 0) return;
+      const v = hr * mult * h;
+      rows.push({ label, h, mult, v });
+      total += v;
+    };
+    if (kind === 'weekday') {
+      add('前 2 小時', Math.min(hours, 2), 1.34);
+      add('第 3–4 小時', clamp(hours - 2, 0, 2), 1.67);
+      if (hours > 4) warn = '平日延長工時每日上限 4 小時（總工時 12 小時），超過的部分不在計算內。';
+    } else if (kind === 'rest') {
+      billed = hours <= 0 ? 0 : hours <= 4 ? 4 : hours <= 8 ? 8 : 12;
+      add('前 2 小時', Math.min(billed, 2), 1.34);
+      add('第 3–8 小時', clamp(billed - 2, 0, 6), 1.67);
+      add('第 9–12 小時', clamp(billed - 8, 0, 4), 2.67);
+      if (hours > 12) warn = '休息日工時上限 12 小時，超過的部分不在計算內。';
+      if (hours > 0 && billed !== hours) warn = (warn ? warn + ' ' : '') + `休息日工時以 4/8/12 小時為單位計算，這次按 ${billed} 小時計。`;
+    } else if (kind === 'holiday') {
+      if (hours > 0) add('國定假日加發一日工資', 8, 1);
+      add('超過 8 小時：前 2 小時', clamp(hours - 8, 0, 2), 1.34);
+      add('超過 8 小時：再 2 小時', clamp(hours - 10, 0, 2), 1.67);
+      if (hours > 12) warn = '單日工時上限 12 小時，超過的部分不在計算內。';
+    }
+    return { hourly: hr, rows, total: Math.round(total), billed, warn };
+  }
+
+  /* ───────── 倒數 / 年終 ───────── */
+  function countdown(targetStr, now, X) {
+    const t = parse(targetStr);
+    if (!t) return null;
+    const today = startOfDay(now);
+    const days = diffDays(today, t);
+    let wd = 0;
+    for (let d = addDays(today, 1); d <= t; d = addDays(d, 1)) if (dayInfo(d, X).type === 'work') wd++;
+    return { days, wd, weeks: days / 7, date: t };
+  }
+  /** 年終預估：salary × 月數 ×（按比例時 min(1, 發放日在職月數 ÷ 12)） */
+  function bonusEstimate(targetStr, X) {
+    const t = parse(targetStr);
+    const sal = +X.cfg.salary || 0, mo = +X.cfg.bonusMonths || 0;
+    if (!t || !sal) return null;
+    let ratio = 1;
+    if (X.cfg.bonusProrate && X.hire) ratio = clamp(diffDays(X.hire, t) / 365.25, 0, 1);
+    return { ratio, amount: Math.round(sal * mo * ratio) };
+  }
+  function nextPayday(now, day) {
+    day = Math.floor(+day || 0);
+    if (day < 1 || day > 31) return null;
+    const today = startOfDay(now);
+    const mk = (y, m) => new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()));
+    let t = mk(today.getFullYear(), today.getMonth());
+    if (t < today) t = mk(today.getFullYear(), today.getMonth() + 1);
+    return { date: t, days: diffDays(today, t) };
+  }
+
+  /* ───────── 格式化 ───────── */
+  function money(n, dec) {
+    dec = dec || 0;
+    return '$' + (+n || 0).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  }
+  function clock(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    return `${pad(Math.floor(sec / 3600))}:${pad(Math.floor(sec % 3600 / 60))}:${pad(sec % 60)}`;
+  }
+  /** 「工作 N 時間」的口語寫法 */
+  function humanWork(sec, cfg) {
+    sec = Math.max(0, sec);
+    if (sec < 60) return `${Math.max(1, Math.round(sec))} 秒`;
+    if (sec < 3600) return `${Math.round(sec / 60)} 分鐘`;
+    const day = totalWork(cfg);
+    if (sec < day) { const h = Math.floor(sec / 3600), m = Math.round(sec % 3600 / 60); return m === 60 ? `${h + 1} 小時` : `${h} 小時 ${m} 分`; }
+    const dd = sec / day;
+    return dd < 10 ? `${dd.toFixed(1)} 個工作日` : `${Math.round(dd)} 個工作日`;
+  }
+  function parseHolidays(text) {
+    const out = new Set();
+    for (const m of String(text || '').matchAll(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/g)) {
+      const s = `${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
+      if (parse(s)) out.add(s);
+    }
+    return [...out].sort();
+  }
+
+  const api = {
+    pad, ymd, parse, startOfDay, addDays, diffDays, addMonths, hm, win, totalWork, workedAt, phase,
+    mkCtx, dayInfo, countType, monthPayDays, dailyPay, ratePerSec, earnings, fullMonths, hireInfo,
+    workedDays, leaveEntitlement, leavePeriod, otPay, countdown, bonusEstimate, nextPayday,
+    money, clock, humanWork, parseHolidays,
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.WPLogic = api;
+})(typeof window !== 'undefined' ? window : globalThis);
