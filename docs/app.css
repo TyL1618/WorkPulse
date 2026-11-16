@@ -125,8 +125,11 @@ textarea { min-height: 96px; resize: vertical; font-size: 14px; }
 .day.work.done .t { color: var(--green); }
 .day.annual { background: rgba(217,181,106,.16); border-color: rgba(217,181,106,.6); }
 .day.annual .t { color: var(--gold); }
-.day.sick { background: rgba(242,109,125,.14); border-color: rgba(242,109,125,.55); }
-.day.sick .t { color: var(--pink); }
+.day.sick, .day.personal { background: rgba(242,109,125,.14); border-color: rgba(242,109,125,.55); }
+.day.sick .t, .day.personal .t { color: var(--pink); }
+.day.bereave, .day.paid { background: rgba(185,164,224,.14); border-color: rgba(185,164,224,.55); }
+.day.bereave .t, .day.paid .t { color: #b9a4e0; }
+.day .t { white-space: nowrap; }
 .day.today { box-shadow: 0 0 0 2px var(--blue), 0 0 14px rgba(90,176,232,.5); }
 .day .ot { position: absolute; top: 3px; right: 4px; font-size: 10px; color: var(--orange); font-weight: 700; }
 .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }

@@ -163,6 +163,20 @@ t('到職至今累計與逐月入帳', () => {
   assert.equal(L.monthlyReport(now, L.mkCtx({ ...S, cfg: { ...S.cfg, hire: '' } })).total, 0);
 });
 
+t('各種假的薪水與津貼：喪假帶薪但沒有津貼，病假半薪，事假不給薪', () => {
+  const S = base(); S.cfg.salary = 40000; S.cfg.allowance = 135;
+  // 11 月 21 個領薪日。11/2~11/6 喪假(5天)、11/9 病假、11/10 事假，其餘上班到 11/13
+  for (const d of ['02', '03', '04', '05', '06']) S.overrides['2026-11-' + d] = 'bereave';
+  S.overrides['2026-11-09'] = 'sick'; S.overrides['2026-11-10'] = 'personal';
+  const x = X(S), dp = 40000 / 21;
+  const e = L.earnings(new Date(2026, 10, 13, 18, 0, 0), x);       // 週五下班後
+  const base_ = dp * 5 + dp * 0.5 + 0 + dp * 3;                    // 喪假 5 全薪 + 病假半薪 + 事假 0 + 11~13 三天上班
+  const allow_ = 135 * 3;                                          // 只有 3 個上班日有津貼
+  assert.ok(Math.abs(e.month - (base_ + allow_)) < 1e-6, `${e.month} vs ${base_ + allow_}`);
+  assert.equal(L.leavePeriod(new Date(2026, 10, 20), X(S)).used, 0);   // 喪假不佔特休
+  assert.equal(L.LEAVE.bereave.name, '喪假');
+});
+
 t('倒數與年終', () => {
   const S = base(); const x = X(S);
   const c = L.countdown('2026-12-31', new Date(2026, 10, 16, 9, 0, 0), x);

@@ -83,7 +83,14 @@
     for (const d of S.cfg.holidays || []) if (!names[d]) names[d] = '假日';
     return { S, cfg: S.cfg, hol: new Set(Object.keys(names)), holName: names, hire: parse(S.cfg.hire) };
   }
-  /** type: work 上班 / off 休息 / annual 特休 / sick 請假 / pre 到職前 */
+  /** 各種假：薪水比例（ratio）與名稱。出勤津貼一律只有「上班」才有，所以假日／請假都沒有。
+   *  特休、喪假、其他帶薪假：薪水照給；病假：半薪（普通傷病假一年 30 日內）；事假：不給薪。
+   *  事假／病假的扣薪用「固定月薪 ÷ 當月領薪日數」估算，與公司以 30 日計的算法可能有些許出入。 */
+  const LEAVE = {
+    annual: { name: '特休', ratio: 1 }, bereave: { name: '喪假', ratio: 1 }, paid: { name: '其他帶薪假', ratio: 1 },
+    sick: { name: '病假', ratio: 0.5 }, personal: { name: '事假', ratio: 0 },
+  };
+  /** type: work 上班 / off 休息 / LEAVE 裡的各種假 / pre 到職前 */
   function dayInfo(d, X, ignoreHire) {
     const ds = ymd(d);
     if (!ignoreHire && X.hire && d < X.hire) return { ds, type: 'pre', regular: false, isHol: false, ov: false, ot: 0 };
@@ -127,8 +134,9 @@
       const t = dayInfo(d, X).type;
       if (t === 'off' || t === 'pre') return [0, 0];
       const al = t === 'work' ? allowanceOf(X.cfg) : 0;          // 出勤津貼只有「上班」那天才有
-      if (d.getTime() === today.getTime()) return t === 'work' ? [dpay(d) * frac, al * frac] : [dpay(d), 0];
-      return d < today ? [dpay(d), al] : [0, 0];
+      const r = t === 'work' ? 1 : (LEAVE[t] ? LEAVE[t].ratio : 1);   // 各種假的薪水比例
+      if (d.getTime() === today.getTime()) return t === 'work' ? [dpay(d) * frac, al * frac] : [dpay(d) * r, 0];
+      return d < today ? [dpay(d) * r, al] : [0, 0];
     };
     return { today, parts, done: sec >= win(X.cfg).e };
   }
@@ -341,7 +349,7 @@
 
   const api = {
     pad, ymd, parse, startOfDay, addDays, diffDays, addMonths, hm, win, totalWork, workedAt, phase,
-    HOLIDAYS, mkCtx, dayInfo, countType, monthPayDays, dailyPay, allowanceOf, ratePerSec, otSalary, earner, earnings, otKind, payMoment, monthlyReport, fullMonths, hireInfo,
+    HOLIDAYS, LEAVE, mkCtx, dayInfo, countType, monthPayDays, dailyPay, allowanceOf, ratePerSec, otSalary, earner, earnings, otKind, payMoment, monthlyReport, fullMonths, hireInfo,
     workedDays, leaveEntitlement, leavePeriod, otPay, countdown, bonusEstimate, nextPayday,
     money, clock, humanWork, parseHolidays,
   };
