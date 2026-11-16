@@ -7,10 +7,10 @@ const vm = require('node:vm');
 
 const fakeEl = () => ({ innerHTML: '', textContent: '', style: {}, dataset: {}, value: '', checked: false,
   classList: { add() {}, remove() {}, toggle() {} }, querySelector: () => null, querySelectorAll: () => [], click() {} });
-function boot(initial) {
+function boot(initial, opts = {}) {
   const els = {}, listeners = {}, store = { 'workpulse.v1': JSON.stringify(initial) };
   const logic = require('../docs/logic.js');
-  const win = { scrollY: 0, scrollTo() {}, WPLogic: logic };
+  const win = { scrollY: 0, scrollTo() {}, addEventListener() {}, WPLogic: logic, WPSync: require('../docs/sync.js'), supabase: opts.supabase };
   const ctx = {
     window: win, console, Date, Math, JSON, Object, Array, Set, Number, String, parseInt, parseFloat, isNaN,
     document: { querySelector: s => els[s] || (els[s] = fakeEl()), querySelectorAll: () => [], createElement: fakeEl,
@@ -28,11 +28,32 @@ function boot(initial) {
   const change = (p, value, attrs = []) => listeners.change({ target: { dataset: { path: p }, value, type: 'text', hasAttribute: a => attrs.includes(a) } });
   const changeId = (id, value) => listeners.change({ target: { id, dataset: {}, value, type: 'text', hasAttribute: () => false } });
   const saved = () => JSON.parse(store['workpulse.v1']);
-  return { els, click, change, changeId, saved, view: () => els['#view'].innerHTML, toast: () => els['#toast'].textContent };
+  const later = () => new Promise(r => setImmediate(r));
+  return { els, click, change, changeId, saved, later, store, view: () => els['#view'].innerHTML, toast: () => els['#toast'].textContent };
+}
+
+const { makeDb } = require('./fakedb.js');
+/** 假的 supabase-js：auth 只認 me@example.com / pw123，資料表用記憶體版 */
+function fakeSupabase(db, uid = 'u-me') {
+  let session = null;
+  const client = {
+    from: t => db.from(t),
+    auth: {
+      getSession: async () => ({ data: { session } }),
+      signInWithPassword: async ({ email, password }) => {
+        if (email === 'me@example.com' && password === 'pw123') { session = { user: { id: uid, email } }; return { data: { user: session.user }, error: null }; }
+        return { data: null, error: { message: 'Invalid login credentials' } };
+      },
+      signOut: async () => { session = null; return {}; },
+      onAuthStateChange() {},
+    },
+  };
+  return { createClient: () => client };
 }
 
 let n = 0;
-const t = (name, fn) => { fn(); n++; console.log('ok  ' + name); };
+const queue = [];
+const t = (name, fn) => queue.push([name, fn]);
 const cfg = { hire: '2026-05-04', salary: 40000, allowance: 135 };
 
 t('五個分頁都能繪製（沒有丟例外）', () => {
@@ -119,4 +140,61 @@ t('病假、事假、特休各自記錄；特休會計入特休用量', () => {
   assert.match(a.view(), /特休（勞基法/);
 });
 
-console.log(`\n${n} 組畫面冒煙測試通過`);
+t('雲端卡片：沒登入時顯示登入表單與建表 SQL；雲端元件載不到也不影響使用', () => {
+  const a = boot({ cfg, ui: { tab: 'set' } });                       // 沒有 supabase
+  assert.match(a.view(), /雲端同步/); assert.match(a.view(), /cloud-email/); assert.match(a.view(), /create table if not exists public\.workpulse/);
+  assert.match(a.view(), /alter table public\.workpulse enable row level security/);   // RLS 一定要開
+});
+
+t('登入：上傳的資料不含這台專屬設定（隱藏金額、分頁、計時器）；密碼錯誤有提示', async () => {
+  const db = makeDb(), a = boot({ cfg: { ...cfg, hide: true }, ui: { tab: 'set' }, poop: { start: 123456, log: [] } }, { supabase: fakeSupabase(db) });
+  await a.later();
+  a.els['#cloud-email'] = Object.assign(fakeEl(), { value: 'me@example.com' }); a.els['#cloud-pass'] = Object.assign(fakeEl(), { value: 'wrong' });
+  a.click('cloudLogin'); await a.later(); await a.later();
+  assert.match(a.els['#cloud-err'].textContent, /帳號或密碼錯誤/);
+  assert.equal(db.rows.size, 0);                                      // 沒登入就沒有任何東西上傳
+  a.els['#cloud-pass'].value = 'pw123';
+  a.click('cloudLogin'); for (let i = 0; i < 6; i++) await a.later();
+  const row = db.rows.get('u-me'); assert.ok(row, '登入後應該已上傳');
+  const cloud = JSON.parse(row.payload);
+  assert.equal(cloud.cfg.salary, 40000); assert.equal(cloud.cfg.hire, '2026-05-04');
+  assert.equal('hide' in cloud.cfg, false); assert.equal('ui' in cloud, false); assert.equal('start' in (cloud.poop || {}), false);
+  assert.match(a.view(), /已登入/); assert.match(a.view(), /me@example\.com/);
+});
+
+t('兩台裝置：A 登記喪假 → 同步 → B 拉到；隱藏金額各自獨立', async () => {
+  const db = makeDb(), sup = fakeSupabase(db);
+  const A = boot({ cfg, ui: { tab: 'set' } }, { supabase: sup }), B = boot({ cfg: { hire: '', salary: 0 }, ui: { tab: 'cal', month: '2026-10' } }, { supabase: sup });
+  for (const d of [A, B]) {
+    await d.later();
+    d.els['#cloud-email'] = Object.assign(fakeEl(), { value: 'me@example.com' }); d.els['#cloud-pass'] = Object.assign(fakeEl(), { value: 'pw123' });
+  }
+  A.click('cloudLogin'); for (let i = 0; i < 6; i++) await A.later();
+  A.click('toggleHide');                                              // A 隱藏金額
+  A.click('tab', { v: 'cal' }); A.click('day', { ds: '2026-10-01' }); A.click('setType', { t: 'bereave' });
+  A.click('cloudSync'); for (let i = 0; i < 6; i++) await A.later();
+  assert.equal(JSON.parse(db.rows.get('u-me').payload).overrides['2026-10-01'], 'bereave');
+  B.click('tab', { v: 'set' }); B.click('cloudLogin'); for (let i = 0; i < 8; i++) await B.later();
+  assert.equal(B.saved().cfg.salary, 40000);                          // B 原本是空的，登入後載入雲端資料
+  assert.equal(B.saved().overrides['2026-10-01'], 'bereave');
+  assert.equal(B.saved().cfg.hide, false);                            // A 的隱藏金額不會跑到 B
+  assert.equal(A.saved().cfg.hide, true);
+});
+
+t('登出：資料保留在本機，不再同步', async () => {
+  const db = makeDb(), a = boot({ cfg, ui: { tab: 'set' } }, { supabase: fakeSupabase(db) });
+  await a.later();
+  a.els['#cloud-email'] = Object.assign(fakeEl(), { value: 'me@example.com' }); a.els['#cloud-pass'] = Object.assign(fakeEl(), { value: 'pw123' });
+  a.click('cloudLogin'); for (let i = 0; i < 6; i++) await a.later();
+  a.click('cloudLogout'); for (let i = 0; i < 4; i++) await a.later();
+  assert.equal(a.saved().cfg.salary, 40000); assert.match(a.view(), /cloud-email/);
+  const rev = db.rows.get('u-me').rev;
+  a.click('tab', { v: 'cal' }); a.click('day', { ds: '2026-10-01' }); a.click('setType', { t: 'sick' });
+  a.click('cloudSync'); await a.later();
+  assert.equal(db.rows.get('u-me').rev, rev);                         // 登出後的修改不會上傳
+});
+
+(async () => {
+  for (const [name, fn] of queue) { await fn(); n++; console.log('ok  ' + name); }
+  console.log(`\n${n} 組畫面冒煙測試通過`);
+})().catch(e => { console.error(e); process.exit(1); });

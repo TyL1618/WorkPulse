@@ -40,9 +40,17 @@
   let S = DEF();
   try { const raw = localStorage.getItem(KEY); if (raw) S = merge(DEF(), JSON.parse(raw)); } catch (e) { /* 隱私模式等 */ }
   let saveTimer = 0;
-  function save() {
+  // 雲端同步狀態（宣告在 save 之前，避免暫時性死區）
+  let sb = null, engine = null, cloudUser = null, editSeq = 0, lastSyncAt = 0, syncState = { s: 'off', t: '' };
+  function saveLocal() {
     try { localStorage.setItem(KEY, JSON.stringify(S)); }
     catch (e) { toast('瀏覽器不允許儲存資料，重新整理後設定會消失'); }
+  }
+  /** 使用者操作造成的修改：存本機，並通知同步引擎（只有「要同步的資料」真的變了才會上傳） */
+  function save() {
+    editSeq++;
+    saveLocal();
+    if (engine) engine.markDirty();
   }
   const X = () => L.mkCtx(S);
   const M = (n, d) => (S.cfg.hide ? '$ •••' : L.money(n, d || 0));
@@ -506,10 +514,125 @@
         <div class="row" style="margin-top:12px"><label class="field"><span>颱風假（天災停止上班）的薪水</span><select data-path="cfg.typhoonPaid" data-bool><option value="true" ${c.typhoonPaid !== false ? 'selected' : ''}>照給（不扣薪）</option><option value="false" ${c.typhoonPaid === false ? 'selected' : ''}>不給薪（扣日薪）</option></select></label></div></section>
       <section class="card"><h2>🔒 隱私</h2><label class="chk"><input type="checkbox" data-path="cfg.hide" ${c.hide ? 'checked' : ''}>隱藏所有金額（也可按右上角眼睛）</label>
         <p class="hint" style="margin-top:10px">所有資料只存在這個瀏覽器的 localStorage，沒有帳號、不上傳。換裝置或清除瀏覽資料前，請先匯出備份。</p></section>
+      ${cloudCard()}
       <section class="card"><h2>💾 備份</h2><div class="row"><button class="btn" data-act="export">匯出備份</button><button class="btn" data-act="import">匯入備份</button><button class="btn danger" data-act="reset">全部重設</button></div></section>
       <section class="card span2"><h2>ℹ️ 說明</h2><p class="hint">
         <b>即時薪資</b>是趣味估算：日薪＝固定月薪 ÷ 當月領薪日數（上班＋各種假），再按已工作秒數（扣午休）累積；出勤津貼只有上班才有，喪假等帶薪假薪水照給、病假半薪、事假不給薪。<b>加班費、特休</b>依勞基法第 24、38 條的最低標準估算，實際以公司規定與主管機關為準。<br>
         <b>安裝成 App</b>：手機用瀏覽器「加到主畫面」；電腦的 Chrome / Edge 網址列右側有「安裝」按鈕，會變成獨立視窗，離線也能用。</p></section></div>`;
+  }
+
+  /* ───────── 雲端同步（Supabase；引擎與合併規則在 sync.js）───────── */
+  const SB_URL = 'https://glbvqhfjqjsnboqkvgjg.supabase.co';
+  const SB_KEY = 'sb_publishable_mulz7CNmTKYZERhXTIggLQ_yTU4yQQ8';   // 公開金鑰；資料靠資料表的 RLS 保護（只能讀寫自己的那一列）
+  const SB_SRC = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
+  const META_KEY = 'workpulse.sync.v1';
+  const SETUP_SQL = `create table if not exists public.workpulse (
+  id      text primary key,
+  payload text not null,
+  updated text,
+  rev     integer not null default 1
+);
+alter table public.workpulse enable row level security;
+create policy "workpulse own row" on public.workpulse
+  for all using (auth.uid()::text = id) with check (auth.uid()::text = id);`;
+
+  /** 要同步的資料：不含這台專屬的（隱藏金額、目前分頁、進行中的計時器） */
+  function extractSynced(st) {
+    const cfg = JSON.parse(JSON.stringify(st.cfg));
+    delete cfg.hide;
+    return JSON.parse(JSON.stringify({
+      v: 1, cfg, overrides: st.overrides, ot: st.ot, targets: st.targets,
+      poop: { log: st.poop.log }, items: st.items, meeting: { n: st.meeting.n, hourly: st.meeting.hourly },
+    }));
+  }
+  /** 把雲端／合併後的資料套回本機（只存本機，不觸發再次上傳） */
+  function applySynced(snap) {
+    const d = DEF(), hide = S.cfg.hide;
+    S.cfg = merge(d.cfg, snap.cfg || {}); S.cfg.hide = hide;
+    S.overrides = snap.overrides || {}; S.ot = snap.ot || {};
+    S.targets = Array.isArray(snap.targets) ? snap.targets : d.targets;
+    S.poop.log = (snap.poop && snap.poop.log) || [];
+    S.items = Array.isArray(snap.items) ? snap.items : d.items;
+    S.meeting.n = snap.meeting && snap.meeting.n ? snap.meeting.n : d.meeting.n;
+    S.meeting.hourly = snap.meeting && snap.meeting.hourly ? snap.meeting.hourly : 0;
+    saveLocal(); render(true);
+    if (sheetDs) openSheet(sheetDs);
+  }
+  const syncText = () => {
+    if (syncState.s === 'saved' && lastSyncAt) { const d = new Date(lastSyncAt); return `已同步 ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+    return syncState.t;
+  };
+  function setSync(s, t) {
+    syncState = { s, t };
+    if (s === 'saved') lastSyncAt = Date.now();
+    const dot = $('#syncDot');
+    if (dot) { dot.className = 'sync-dot ' + s; dot.title = syncText(); }
+    $$('[data-sync]').forEach(el => { el.textContent = syncText(); });
+  }
+  function loadSupabase() {
+    return new Promise(res => {
+      if (window.supabase) return res(true);
+      try {
+        const s = document.createElement('script');
+        s.src = SB_SRC; s.async = true;
+        s.onload = () => res(!!window.supabase); s.onerror = () => res(false);
+        document.head.appendChild(s);
+      } catch (e) { res(false); }
+    });
+  }
+  async function initCloud() {
+    try {
+      if (!(await loadSupabase())) { setSync('offline', '無法載入雲端元件（可能離線），不影響本機使用'); return; }
+      sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { storageKey: 'workpulse.auth', persistSession: true, autoRefreshToken: true } });
+      engine = window.WPSync.createEngine({
+        client: sb, table: 'workpulse',
+        getUserId: () => (cloudUser ? cloudUser.id : null),
+        getSnapshot: () => extractSynced(S), applySnapshot: applySynced,
+        defaultSnapshot: () => extractSynced(DEF()), getSeq: () => editSeq,
+        loadMeta: () => { try { return JSON.parse(localStorage.getItem(META_KEY)); } catch (e) { return null; } },
+        saveMeta: m => { try { localStorage.setItem(META_KEY, JSON.stringify(m)); } catch (e) { /* 空間不足也不影響本機使用 */ } },
+        confirmConflict: async names => confirm(
+          `另一台裝置也改了「${names.join('、')}」的同一個地方，無法自動合併。\n\n按「確定」：這些地方保留這台的修改\n按「取消」：這些地方改用雲端的版本\n\n（沒有衝突的修改，兩邊都會保留）`),
+        onStatus: setSync,
+        onMerged: msg => toast(msg),
+      });
+      const r = await sb.auth.getSession();
+      cloudUser = r && r.data && r.data.session ? r.data.session.user : null;
+      sb.auth.onAuthStateChange((ev, sess) => {
+        if (!sess && cloudUser) { cloudUser = null; engine.onSignedOut(); render(true); }   // 另一處登出或 token 失效
+      });
+      if (cloudUser) engine.syncNow(); else setSync('off', '');
+      if (S.ui.tab === 'set') render(true);
+    } catch (e) { setSync('offline', '雲端元件初始化失敗，不影響本機使用'); }
+  }
+  async function cloudLogin() {
+    const email = ($('#cloud-email').value || '').trim(), pass = $('#cloud-pass').value || '', err = $('#cloud-err');
+    if (!email || !pass) { err.textContent = '請輸入 Email 與密碼'; return; }
+    if (!sb) { err.textContent = '雲端元件還沒載入（可能離線），稍後再試'; return; }
+    err.textContent = ''; setSync('saving', '登入中');
+    try {
+      const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+      if (error) throw error;
+      cloudUser = data.user; render(true);
+      await engine.onSignedIn(); render(true);
+    } catch (e) {
+      setSync('off', '');
+      err.textContent = /invalid/i.test(String(e.message)) ? '帳號或密碼錯誤' : '登入失敗：' + (e.message || e);
+    }
+  }
+  function cloudCard() {
+    if (!cloudUser) {
+      return `<section class="card span2"><h2>☁️ 雲端同步 <span class="tag" data-sync>${esc(syncText())}</span></h2>
+        <p class="hint">登入後，班表、設定、年終日期與紀錄會在你的手機和電腦之間自動同步，兩台同時修改也不會互相蓋掉。使用跟 WealthMatrix、VaultMe 同一組帳號。不登入也能正常使用，資料只存在這台裝置。</p>
+        <div class="row" style="margin-top:12px"><input type="text" id="cloud-email" autocomplete="username" placeholder="Email" style="flex:1;min-width:180px"><input type="password" id="cloud-pass" autocomplete="current-password" placeholder="密碼" style="flex:1;min-width:140px"><button class="btn primary" data-act="cloudLogin">登入並同步</button></div>
+        <p class="warn" id="cloud-err"></p>
+        <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">第一次使用：要先在 Supabase 建立資料表</summary>
+          <p class="hint" style="margin:8px 0">到 Supabase 專案的 SQL Editor 貼上執行一次（跟 WealthMatrix 同一個專案）：</p><pre class="sql">${esc(SETUP_SQL)}</pre></details></section>`;
+    }
+    return `<section class="card span2"><h2>☁️ 雲端同步 <span class="tag" data-sync>${esc(syncText())}</span></h2>
+      <p class="hint">已登入 <b>${esc(cloudUser.email || '')}</b>。修改後約 1～2 秒自動上傳；回到 App、恢復連線、每 5 分鐘會拉取其他裝置的更新。</p>
+      <div class="row" style="margin-top:12px"><button class="btn" data-act="cloudSync">立即同步</button><button class="btn danger" data-act="cloudLogout">登出</button></div>
+      <p class="hint" style="margin-top:10px">不會同步（只留在這台）：隱藏金額開關、目前停留的分頁、進行中的計時器。登出只是停止同步，這台的資料會保留。</p></section>`;
   }
 
   /* ───────── 繪製與事件 ───────── */
@@ -539,6 +662,13 @@
       for (const k of Object.keys(S.ot)) if (k.startsWith(p)) delete S.ot[k];
       save(); render(true);
     },
+    cloudLogin() { cloudLogin(); },
+    async cloudLogout() {
+      if (!confirm('登出雲端同步？這台裝置的資料會保留，只是不再同步。')) return;
+      try { if (sb) await sb.auth.signOut(); } catch (e) { /* 離線也要能登出 */ }
+      cloudUser = null; if (engine) engine.onSignedOut(); render(true);
+    },
+    cloudSync() { if (engine && cloudUser) engine.syncNow(); else toast('還沒登入雲端同步（到「設定」登入）'); },
     lvApply() {
       const lv = S.ui.lv, from = L.parse(lv.from), to = L.parse(lv.to || lv.from);
       if (!from || !to || to < from) { toast('請選好起訖日期（結束日不能早於開始日）'); return; }
@@ -651,6 +781,14 @@
   });
 
   render();
+  initCloud();
+  document.addEventListener('visibilitychange', () => {
+    if (!engine || !cloudUser) return;
+    if (document.visibilityState === 'hidden') engine.flush();      // 切到背景前立刻存（行動瀏覽器可能凍結計時器）
+    else engine.pullLatest();                                      // 回到前景：拉其他裝置的更新
+  });
+  window.addEventListener('online', () => { if (engine && cloudUser) engine.syncNow(); });
+  setInterval(() => { if (engine && cloudUser && document.visibilityState === 'visible') engine.pullLatest(); }, 300000);
   setInterval(tick, 1000);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(() => { /* 離線功能不可用而已 */ });

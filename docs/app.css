@@ -83,7 +83,7 @@ details.card:not([open]) > summary h2 { margin-bottom: 0; }
 .row.sp { justify-content: space-between; }
 .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 130px; }
 .field > span { font-size: 12px; color: var(--muted); }
-input[type=text], input[type=number], input[type=date], input[type=time], select, textarea {
+input[type=text], input[type=password], input[type=email], input[type=number], input[type=date], input[type=time], select, textarea {
   background: var(--panel2); border: 1px solid var(--border2); border-radius: 10px; padding: 9px 11px; min-width: 0; width: 100%;
   color-scheme: dark;
 }
@@ -171,6 +171,14 @@ textarea { min-height: 96px; resize: vertical; font-size: 14px; }
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+.sync-dot { width: 14px; height: 14px; border-radius: 50%; border: 0; padding: 0; cursor: pointer; background: #667; flex: none; }
+.sync-dot.off { display: none; }
+.sync-dot.saved, .sync-dot.idle { background: var(--green); }
+.sync-dot.saving { background: var(--blue); animation: pulse 1s ease-in-out infinite; }
+.sync-dot.offline { background: var(--orange); }
+.sync-dot.error { background: var(--pink); }
+@keyframes pulse { 50% { opacity: .35; } }
+pre.sql { background: var(--panel2); border: 1px solid var(--border2); border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre; user-select: text; }
 .setup .row { align-items: flex-end; }
 .setup { border-color: rgba(90,176,232,.5); background: linear-gradient(160deg, rgba(90,176,232,.10), var(--panel)); }
 .poop-btn { width: 100%; padding: 16px; font-size: 18px; }

@@ -14,6 +14,8 @@ docs/
 ├── manifest.json     start_url/scope 都是相對路徑 "./"，所以放在任何子路徑都能裝
 └── icon-*.png / apple-touch-icon.png / favicon.ico   由 tools/make_icon.py 產生
 tests/logic.test.js   node 直接跑，涵蓋 logic.js 的計算
+docs/sync.js          雲端同步引擎與三方合併（純邏輯；瀏覽器掛 window.WPSync）
+tests/sync.test.js    用記憶體版假 Supabase（tests/fakedb.js）模擬多台裝置：合併、搶寫、離線、同步途中編輯
 tests/ui.smoke.test.js  用最小的假 DOM 載入真正的 app.js，模擬點擊與輸入（每個分頁能繪製、請假登記流程）
 tools/make_icon.py    Pillow 畫 icon（藍→綠漸層進度環＋線尾圓環＋指針）
 ```
@@ -78,6 +80,27 @@ ui         { tab, month, lv:{type,from,to} }   lv 是「登記請假」表單的
 ## 發薪日
 
 `L.nextPayday(now, day, time)` 回傳下一次入帳的精確時間點（今天已過入帳時間就算下個月，月底自動縮到該月最後一天）。今日分頁的倒數是 `data-live="payLeft"`（天＋時分秒）；「預計入帳」＝入帳月份（`payOfPrev` 時為前一個月）的 `monthCounts().expect`，不含加班費。
+
+## 雲端同步（Supabase）
+
+**架構**：與 WealthMatrix / VaultMe 同一個 Supabase 專案（URL 與 publishable key 寫在 `app.js` 的 `SB_URL` / `SB_KEY`，是公開值）、同一組帳號；本專案自己一張表 `workpulse`（`id`＝使用者 UUID、`payload`＝JSON 字串、`updated`、`rev`＝版本號）。RLS 只允許讀寫 `auth.uid()::text = id` 的那一列，**RLS 必須維持開啟、關閉匿名註冊**。Auth session 存在獨立的 `storageKey: 'workpulse.auth'`（同網域的其他 PWA 不共用 session）。登入前完全不碰雲端。
+
+**同步哪些資料**（`extractSynced`）：cfg（不含 `hide`）、overrides、ot、targets、poop.log、items、meeting.n/hourly。**不同步**：`cfg.hide`、`ui`、`poop.start`、`meeting.start/acc`。本機另存 `workpulse.sync.v1`＝`{ baseRev, base, dirty }`（上次同步的版本號與資料快照，三方合併的共同祖先）。
+
+**防衝突（比 WealthMatrix 網頁版多一道）**：
+1. **版本號比對才寫入**：`UPDATE … WHERE id=我 AND rev=我讀到的` ；回傳 0 列代表被別台搶先 → 重新讀取、合併、再寫（最多 5 次）。WealthMatrix 是「先查 updated 再 upsert」，兩步之間仍有空窗。
+2. **三方合併**（`sync.js` 的 `mergeSynced`）：`base / local / remote` 逐格比較，只有一邊改就採用那邊；物件清單（targets 以 `id`、items 以 `n`、poop.log 以 `t`）逐筆對應並逐欄位合併；集合（holidays、workdays）逐元素增減；一邊改、一邊刪同一筆算衝突。**只有衝突才跳 `confirm`**：確定＝這些地方保留這台，取消＝改用雲端。
+3. **不用預設值蓋雲端**：沒有 base（第一次登入）時以預設資料當 base，所以全新裝置不會把雲端設定洗掉。
+
+**時機**：修改後 1.5 秒上傳（只有同步資料真的變了才排程）；切到背景立即 flush；回到前景、`online`、每 5 分鐘 → `pullLatest`（有未同步修改就走合併）。同步途中使用者又改了東西，`applyResult` 會把那些修改疊在結果上，不會丟。離線時修改留在本機、標記 dirty，恢復連線自動補送。
+
+**狀態燈**（頂欄）：綠＝已同步、藍閃＝同步中、橘＝離線、紅＝錯誤（點一下立即同步）；未登入時隱藏。找不到 `workpulse` 表時會明確提示要執行建表 SQL。
+
+**Service Worker**：Supabase 套件固定版本 `@2.45.4`（UMD，`window.supabase`），`cdn.jsdelivr.net` 走快取優先，離線時 App 仍能啟動；Supabase API 不經 SW。
+
+**沒驗證到的**：自動化測試全部用記憶體版假資料庫，**還沒對真的 Supabase 跑過**（需要先建表並登入）。第一次實機同步後請確認 Supabase 的 `workpulse` 表出現一列、手機與電腦能互相看到修改。
+
+**加密**：payload 是明文 JSON（與 WealthMatrix 網頁版相同，靠 RLS 保護）。月薪屬敏感資料，若之後想端對端加密，可比照 VaultMe 的做法。
 
 ## 年終
 

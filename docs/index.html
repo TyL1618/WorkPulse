@@ -20,6 +20,7 @@
 <header class="top">
   <div class="brand"><img src="icon-192.png" alt="" width="30" height="30"><b>WorkPulse</b></div>
   <div class="top-mid"><span data-live="date"></span> <span class="neon-num" data-live="clock"></span></div>
+  <button class="sync-dot off" id="syncDot" data-act="cloudSync" aria-label="雲端同步狀態，點一下立即同步"></button>
   <button class="icon-btn" data-act="toggleHide" aria-label="隱藏或顯示金額" id="eyeBtn"></button>
 </header>
 <main id="view"></main>
@@ -28,6 +29,7 @@
 <div id="toast" role="status"></div>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
 <script src="logic.js"></script>
+<script src="sync.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
