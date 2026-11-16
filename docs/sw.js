@@ -1,4 +1,4 @@
-const CACHE = 'wp-v3';
+const CACHE = 'wp-v4';
 const SHELL = ['./', 'index.html', 'app.css', 'app.js', 'logic.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -16,7 +16,7 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })   // GitHub Pages 預設讓瀏覽器快取 10 分鐘，這裡強制向伺服器確認有沒有新版
       .then(res => {
         if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
         return res;
