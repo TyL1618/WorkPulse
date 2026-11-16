@@ -12,6 +12,8 @@
 
 ## 使用
 
+線上版：<https://tyl1618.github.io/WorkPulse/>（手機用瀏覽器「加到主畫面」；電腦的 Chrome／Edge 網址列右側按「安裝」）。
+
 直接開 `docs/index.html` 也能用（但離線快取與「安裝」需要 http(s) 網址）。本機試跑：
 
 ```bash

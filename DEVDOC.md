@@ -1,6 +1,6 @@
 # WorkPulse 技術文件
 
-純前端 PWA，無建置步驟、無第三方執行期套件。部署只要把 `docs/` 整個丟到任何靜態主機（GitHub Pages 等）。
+純前端 PWA，無建置步驟、無第三方執行期套件。線上版：https://tyl1618.github.io/WorkPulse/ （GitHub Pages，來源 `main` 分支的 `/docs`，push 後約 1 分鐘生效）。也可把 `docs/` 丟到任何靜態主機。
 
 ## 檔案
 
@@ -59,7 +59,7 @@ ui         { tab, month }
 - 沒有通知／提醒功能（iOS PWA 對背景通知支援有限）。
 - 沒有雲端同步，換裝置要用「匯出／匯入備份」。
 - 資料與計算都在本機；**月薪是敏感資料**，所以預設只放 localStorage，且提供一鍵隱藏金額。
-- 2026-11 開發時 service worker 在 Claude 內嵌瀏覽器無法註冊（環境限制，`sw.js` 本身回傳 200 且語法正確），**第一次部署後要用真的 Chrome/手機驗證「安裝」與離線**。
+- 2026-11-16 已部署到 GitHub Pages（`main` 的 `/docs`）：https://tyl1618.github.io/WorkPulse/ 。service worker 在線上網址註冊成功、快取 `wp-v1` 建立；本機 http://127.0.0.1 在 Claude 內嵌瀏覽器無法註冊（環境限制），所以 SW 以線上版為準。**尚未在實體手機上驗證「加到主畫面」。**
 
 ## 新增功能時
 
