@@ -14,7 +14,7 @@
 1. 計算放 `docs/logic.js`（純函式、不碰 DOM），並在 `tests/logic.test.js` 補測試。
 2. 每秒更新的數字：`live()` 回傳 key，畫面用 `data-live="key"`。
 3. 互動：按鈕用 `data-act` 對應 `ACT`；會存設定的輸入框用 `data-path="cfg.xxx"`（數字加 `data-num`）。
-4. **改了 `docs/` 任何檔案，把 `docs/sw.js` 的 `CACHE`（目前 `wp-v1`）版號 +1**，否則使用者拿到舊快取。
+4. **改了 `docs/` 任何檔案，把 `docs/sw.js` 的 `const CACHE = 'wp-vN'` 版號 +1**（以 `sw.js` 現值為準；DEVDOC 寫的 `wp-v1` 已過時），否則使用者拿到舊快取。
 
 ## 地雷 / 刻意不做
 - 薪資、假別、加班費依台灣勞基法（第 24、38 條）；**內建國定假日只有 2026、2027**（`logic.js` 的 `HOLIDAYS`），2028 起要等公告後手動補。
